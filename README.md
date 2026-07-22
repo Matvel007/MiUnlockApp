@@ -58,8 +58,12 @@
 - The app keeps the session needed for the application on your device.
 - Your account details are not sent to third-party services.
 
+## License
+
+This project is available under the [MIT License](LICENSE).
+
 <div align="center">
 
-Made for Android.
+Made for Android with ChatGPT 5.6 Terra ❤️
 
 </div>
