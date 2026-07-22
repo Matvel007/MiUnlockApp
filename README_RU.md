@@ -15,8 +15,8 @@
 ## Скриншоты
 
 <div align="center">
-  <img src="Screenshots/Главное%20меню.jpg" width="280" alt="Главное меню">
-  <img src="Screenshots/Настройки.jpg" width="280" alt="Настройки">
+  <img src="Screenshots/Главное%20меню.jpg" width="160" alt="Главное меню">
+  <img src="Screenshots/Настройки.jpg" width="160" alt="Настройки">
 </div>
 
 ## Возможности

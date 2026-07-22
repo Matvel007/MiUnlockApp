@@ -15,8 +15,8 @@
 ## Screenshots
 
 <div align="center">
-  <img src="Screenshots/main.jpg" width="280" alt="Main screen">
-  <img src="Screenshots/settings.jpg" width="280" alt="Settings screen">
+  <img src="Screenshots/main.jpg" width="160" alt="Main screen">
+  <img src="Screenshots/settings.jpg" width="160" alt="Settings screen">
 </div>
 
 ## What It Does
