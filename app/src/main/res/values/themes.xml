@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MiUnlock" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:statusBarColor">@color/mi_orange</item>
+        <item name="android:windowBackground">@color/paper</item>
+    </style>
+</resources>
