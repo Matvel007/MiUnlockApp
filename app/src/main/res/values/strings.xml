@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">Mi Unlock</string>
+    <string name="app_name">MiUnlockApp</string>
     <string name="channel_status_name">Unlock status</string>
     <string name="channel_status_desc">Shows the live status of the bootloader unlock watcher</string>
     <string name="channel_result_name">Unlock results</string>
