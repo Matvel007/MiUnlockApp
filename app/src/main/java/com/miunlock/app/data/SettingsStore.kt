@@ -7,6 +7,8 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.miunlock.app.domain.Credentials
+import com.miunlock.app.domain.ProxySettings
+import com.miunlock.app.domain.ProxyType
 import com.miunlock.app.domain.UserSettings
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -21,6 +23,15 @@ class SettingsStore(private val context: Context) {
         val versionName = stringPreferencesKey("version_name")
         val versionCode = intPreferencesKey("version_code")
         val delayMs = intPreferencesKey("delay_ms")
+        val proxyType = stringPreferencesKey("proxy_type")
+        val proxyHost = stringPreferencesKey("proxy_host")
+        val proxyPort = intPreferencesKey("proxy_port")
+        val proxyUsername = stringPreferencesKey("proxy_username")
+        val proxyPassword = stringPreferencesKey("proxy_password")
+        val httpProxyHost = stringPreferencesKey("http_proxy_host")
+        val httpProxyPort = intPreferencesKey("http_proxy_port")
+        val httpProxyUsername = stringPreferencesKey("http_proxy_username")
+        val httpProxyPassword = stringPreferencesKey("http_proxy_password")
         val autoResume = booleanPreferencesKey("auto_resume")
         val vibration = booleanPreferencesKey("vibration")
         val statusNotifications = booleanPreferencesKey("status_notifications")
@@ -29,6 +40,15 @@ class SettingsStore(private val context: Context) {
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map { p ->
+        val proxyType = runCatching { ProxyType.valueOf(p[Keys.proxyType] ?: ProxyType.NONE.name) }
+            .getOrDefault(ProxyType.NONE)
+        val legacyProxy = ProxySettings(
+            type = proxyType,
+            host = p[Keys.proxyHost].orEmpty(),
+            port = p[Keys.proxyPort] ?: 0,
+            username = p[Keys.proxyUsername].orEmpty(),
+            password = p[Keys.proxyPassword].orEmpty(),
+        )
         UserSettings(
             credentials = Credentials(
                 serviceToken = p[Keys.token].orEmpty(),
@@ -37,6 +57,14 @@ class SettingsStore(private val context: Context) {
                 versionCode = p[Keys.versionCode] ?: 500411,
             ),
             delayMs = (p[Keys.delayMs] ?: 500).coerceIn(0, 10_000),
+            proxyType = proxyType,
+            httpProxy = ProxySettings(
+                type = ProxyType.HTTP,
+                host = p[Keys.httpProxyHost] ?: if (proxyType == ProxyType.HTTP) legacyProxy.host else "",
+                port = p[Keys.httpProxyPort] ?: if (proxyType == ProxyType.HTTP) legacyProxy.port else 0,
+                username = p[Keys.httpProxyUsername] ?: if (proxyType == ProxyType.HTTP) legacyProxy.username else "",
+                password = p[Keys.httpProxyPassword] ?: if (proxyType == ProxyType.HTTP) legacyProxy.password else "",
+            ),
             autoResume = p[Keys.autoResume] ?: false,
             vibration = p[Keys.vibration] ?: true,
             statusNotifications = p[Keys.statusNotifications] ?: true,
@@ -53,6 +81,11 @@ class SettingsStore(private val context: Context) {
             p[Keys.versionName] = settings.credentials.versionName
             p[Keys.versionCode] = settings.credentials.versionCode
             p[Keys.delayMs] = settings.delayMs.coerceIn(0, 10_000)
+            p[Keys.proxyType] = settings.proxyType.name
+            p[Keys.httpProxyHost] = settings.httpProxy.host.trim()
+            p[Keys.httpProxyPort] = settings.httpProxy.port.coerceIn(0, 65535)
+            p[Keys.httpProxyUsername] = settings.httpProxy.username.trim()
+            p[Keys.httpProxyPassword] = settings.httpProxy.password
             p[Keys.autoResume] = settings.autoResume
             p[Keys.vibration] = settings.vibration
             p[Keys.statusNotifications] = settings.statusNotifications

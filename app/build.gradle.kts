@@ -21,8 +21,8 @@ android {
         applicationId = "com.miunlock.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0"
+        versionCode = 3
+        versionName = "1.1"
         vectorDrawables { useSupportLibrary = true }
         ndk { abiFilters += "arm64-v8a" }
     }
@@ -63,7 +63,7 @@ tasks.register<Copy>("copyReleaseApk") {
     dependsOn("assembleRelease")
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("release"))
-    rename { "MIUnlockApp_1.0.apk" }
+    rename { "MIUnlockApp_1.1.apk" }
 }
 
 dependencies {
@@ -91,6 +91,7 @@ chaquopy {
         version = "3.11"
         pip {
             install("requests")
+            install("qrcode[pil]")
         }
     }
 }

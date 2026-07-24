@@ -1,11 +1,15 @@
 package com.miunlock.app.auth
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
 import android.view.WindowManager
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -49,9 +54,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.miunlock.app.MiUnlockApp
+import com.miunlock.app.data.DebugLog
 import com.miunlock.app.domain.Credentials
+import com.miunlock.app.service.QrLoginService
 import com.miunlock.app.ui.theme.MiOrange
 import com.miunlock.app.ui.theme.MiUnlockTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.UUID
 
@@ -66,6 +74,9 @@ class MiLoginActivity : ComponentActivity() {
     private var selectedMethod by mutableStateOf<String?>(null)
     private var codeSent by mutableStateOf(false)
     private var language = "ru"
+    private var qrMode by mutableStateOf(false)
+    private var qrBitmap by mutableStateOf<Bitmap?>(null)
+    private var qrStatus by mutableStateOf("")
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,36 +89,44 @@ class MiLoginActivity : ComponentActivity() {
         hideStatusBars()
         language = savedInstanceState?.getString("language") ?: intent.getStringExtra("language") ?: "ru"
         account = savedInstanceState?.getString("account").orEmpty()
-        password = savedInstanceState?.getString("password").orEmpty()
-        verificationCode = savedInstanceState?.getString("verificationCode").orEmpty()
         status = savedInstanceState?.getString("status") ?: t("Введите Xiaomi ID, email или телефон и пароль.", "Enter Xiaomi ID, email or phone and password.")
         verificationMethods = savedInstanceState?.getStringArrayList("verificationMethods")?.toList().orEmpty()
         selectedMethod = savedInstanceState?.getString("selectedMethod")
         codeSent = savedInstanceState?.getBoolean("codeSent") ?: false
         setContent {
             MiUnlockTheme {
-                LoginScreen(
-                    account = account,
-                    password = password,
-                    code = verificationCode,
-                    status = status,
-                    working = working,
-                    codeSent = codeSent,
-                    language = language,
-                    onAccountChange = { account = it },
-                    onPasswordChange = { password = it },
-                    onCodeChange = { verificationCode = it },
-                    onLogin = ::login,
-                    onClose = ::finish,
-                )
+                BackHandler(enabled = qrMode) { cancelQr() }
+                if (qrMode) {
+                    QrLoginScreen(
+                        bitmap = qrBitmap,
+                        status = qrStatus,
+                        working = working,
+                        language = language,
+                        onCancel = ::cancelQr,
+                    )
+                } else {
+                    LoginScreen(
+                        account = account,
+                        password = password,
+                        code = verificationCode,
+                        status = status,
+                        working = working,
+                        codeSent = codeSent,
+                        language = language,
+                        onAccountChange = { account = it },
+                        onPasswordChange = { password = it },
+                        onCodeChange = { verificationCode = it },
+                        onLogin = ::login,
+                        onQr = ::startQrLogin,
+                        onClose = ::finish,
+                    )
+                }
             }
         }
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("account", account)
-        outState.putString("password", password)
-        outState.putString("verificationCode", verificationCode)
         outState.putString("status", status)
         outState.putStringArrayList("verificationMethods", ArrayList(verificationMethods))
         outState.putString("selectedMethod", selectedMethod)
@@ -141,6 +160,7 @@ class MiLoginActivity : ComponentActivity() {
             try {
                 working = true
                 status = t("Проверяю Xiaomi Account...", "Checking Xiaomi Account...")
+                configureAuthProxy()
                 clearSavedCredentials()
                 val result = auth.login(account, password, SID, language)
                 if (result.needsVerification) {
@@ -164,7 +184,8 @@ class MiLoginActivity : ComponentActivity() {
         status = t("Запрашиваю код Xiaomi...", "Requesting Xiaomi code...")
         auth.sendCode(method)
         codeSent = true
-        status = t("Код отправлен. Введите его в поле под паролем и нажмите «Войти» еще раз.", "Code sent. Enter it below the password and tap Sign in again.")
+        val channel = if (method == "PH") t("по SMS", "by SMS") else t("на email", "by email")
+        status = t("Код отправлен $channel. Введите его в поле под паролем и нажмите «Проверить код».", "Code sent $channel. Enter it below the password and tap Verify code.")
     }
 
     private fun verifyCode() {
@@ -198,6 +219,7 @@ class MiLoginActivity : ComponentActivity() {
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
         val (token, deviceId) = auth.exchange(SID)
+        DebugLog.add("Mi Community session exchanged")
         val store = (application as MiUnlockApp).container.settingsStore
         val current = store.current()
         store.save(current.copy(credentials = Credentials(
@@ -206,6 +228,7 @@ class MiLoginActivity : ComponentActivity() {
             versionName = current.credentials.versionName,
             versionCode = current.credentials.versionCode,
         )))
+        DebugLog.add("Mi Community session saved")
         password = ""
         Toast.makeText(this, t("Mi Community сессия получена", "Mi Community session obtained"), Toast.LENGTH_LONG).show()
         setResult(RESULT_OK)
@@ -216,6 +239,82 @@ class MiLoginActivity : ComponentActivity() {
         val store = (application as MiUnlockApp).container.settingsStore
         val current = store.current()
         store.save(current.copy(credentials = current.credentials.copy(serviceToken = "", deviceId = "")))
+    }
+
+    private suspend fun configureAuthProxy(): com.miunlock.app.domain.ProxySettings {
+        val proxy = (application as MiUnlockApp).container.settingsStore.current().proxy
+        auth.setProxy(proxy)
+        DebugLog.add(if (proxy.isEnabled) "Авторизация Xiaomi через HTTP-прокси" else "Авторизация Xiaomi без прокси")
+        return proxy
+    }
+
+    private fun startQrLogin() {
+        lifecycleScope.launch {
+            try {
+                qrMode = true
+                QrLoginService.start(
+                    this@MiLoginActivity,
+                    t("Вход по QR-коду", "QR sign-in"),
+                    t("Ожидание входа Xiaomi по QR-коду", "Waiting for Xiaomi QR sign-in"),
+                )
+                val proxy = configureAuthProxy()
+                val authData = auth.qrAuthData(QR_SID)
+                DebugLog.add("QR serviceLogin cookies: ${authData.cookieNames.joinToString().ifBlank { "none" }}")
+                while (qrMode) {
+                    try {
+                        working = true
+                        qrStatus = t("Запрашиваю QR-код Xiaomi...", "Requesting Xiaomi QR code...")
+                        val qrData = auth.qrLogin(authData.value)
+                        val png = auth.qrPng(qrData.loginUrl)
+                        qrBitmap = BitmapFactory.decodeByteArray(png, 0, png.size)
+                        val timeoutSeconds = qrData.timeoutMs / 1_000
+                        qrStatus = t(
+                            "Отсканируйте QR-код через Xiaomi Account. Ожидаю подтверждение...",
+                            "Scan the QR code with Xiaomi Account. Waiting for confirmation...",
+                        ).trim()
+                        DebugLog.add("QR-код Xiaomi получен; long-poll timeout $timeoutSeconds с")
+                        DebugLog.add("QR session cookies: ${qrData.cookieNames.joinToString().ifBlank { "none" }}")
+                        if (qrData.tips.isNotBlank()) DebugLog.add("QR tips: ${qrData.tips.take(120)}")
+                        working = false
+                        DebugLog.add("QR long-poll запущен")
+                        val poll = auth.qrPoll(qrData.lp, qrData.timeoutMs, qrData.cookieHeader, proxy)
+                        if (poll.scanned) {
+                            if (!qrMode) return@launch
+                            working = true
+                            DebugLog.add("QR-вход подтвержден Xiaomi")
+                            qrStatus = t("QR отсканирован! Получаю токен...", "QR scanned! Getting token...")
+                            qrMode = false
+                            DebugLog.add("QR: получаю Mi Community session")
+                            finishLogin()
+                            return@launch
+                        }
+                        if (poll.expired) {
+                            DebugLog.add("QR long-poll timeout; запрашиваю новый QR")
+                            continue
+                        }
+                    } catch (e: Exception) {
+                        if (!qrMode) return@launch
+                        DebugLog.add("QR long-poll ошибка: ${e.message ?: e::class.simpleName ?: "ошибка"}")
+                        qrStatus = friendlyError(t("Ошибка QR", "QR error"), e)
+                        qrMode = false
+                        return@launch
+                    }
+                }
+            } catch (e: Exception) {
+                qrMode = false
+                qrStatus = friendlyError(t("Ошибка QR", "QR error"), e)
+            } finally {
+                working = false
+                if (!qrMode) QrLoginService.stop(this@MiLoginActivity)
+            }
+        }
+    }
+
+    private fun cancelQr() {
+        qrMode = false
+        qrBitmap = null
+        qrStatus = ""
+        QrLoginService.stop(this)
     }
 
     private fun friendlyError(prefix: String, error: Exception): String {
@@ -230,6 +329,7 @@ class MiLoginActivity : ComponentActivity() {
 
     private companion object {
         const val SID = "18n_bbs_global"
+        const val QR_SID = "passport"
     }
 }
 
@@ -246,13 +346,14 @@ private fun LoginScreen(
     onPasswordChange: (String) -> Unit,
     onCodeChange: (String) -> Unit,
     onLogin: () -> Unit,
+    onQr: () -> Unit,
     onClose: () -> Unit,
 ) {
     Box(Modifier.fillMaxSize()) {
         PaperBackground()
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+            contentPadding = PaddingValues(start = 18.dp, top = 48.dp, end = 18.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             item {
@@ -269,13 +370,55 @@ private fun LoginScreen(
                     }
                     Spacer(Modifier.height(12.dp))
                     Button(onLogin, Modifier.fillMaxWidth(), enabled = !working, colors = ButtonDefaults.buttonColors(containerColor = MiOrange), shape = RoundedCornerShape(14.dp)) {
-                        Text(if (working) if (language == "en") "PROCESSING..." else "ОБРАБОТКА..." else if (language == "en") "SIGN IN" else "ВОЙТИ")
+                        Text(
+                            if (working) {
+                                if (language == "en") "PROCESSING..." else "ОБРАБОТКА..."
+                            } else if (codeSent) {
+                                if (language == "en") "VERIFY CODE" else "ПРОВЕРИТЬ КОД"
+                            } else if (language == "en") "SIGN IN" else "ВОЙТИ"
+                        )
+                    }
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedButton(onQr, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
+                        Text(if (language == "en") "SIGN IN VIA QR" else "ВОЙТИ ЧЕРЕЗ QR")
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(status, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
                 }
             }
             item { OutlinedButton(onClose, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text(if (language == "en") "CLOSE" else "ЗАКРЫТЬ") } }
+        }
+    }
+}
+
+@Composable
+private fun QrLoginScreen(
+    bitmap: Bitmap?,
+    status: String,
+    working: Boolean,
+    language: String,
+    onCancel: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        PaperBackground()
+        Column(
+            Modifier.fillMaxSize().padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(20.dp, Alignment.CenterVertically),
+        ) {
+            LoginCard {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.fillMaxWidth()) {
+                    SectionTitle("01", if (language == "en") "QR LOGIN" else "QR-ВХОД")
+                    bitmap?.let {
+                        Image(it.asImageBitmap(), contentDescription = "QR", modifier = Modifier.size(280.dp))
+                        Spacer(Modifier.height(16.dp))
+                    }
+                    Text(status, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+            OutlinedButton(onCancel, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
+                Text(if (language == "en") "CANCEL" else "ОТМЕНА")
+            }
         }
     }
 }

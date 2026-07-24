@@ -12,3 +12,6 @@ local.properties
 /app/build/
 **/__pycache__/
 *.py[cod]
+*.md
+!README.md
+!README_RU.md

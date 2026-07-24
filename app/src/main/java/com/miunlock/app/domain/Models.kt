@@ -11,14 +11,35 @@ data class Credentials(
     val isValid: Boolean get() = serviceToken.isNotBlank() && deviceId.isNotBlank()
 }
 
+enum class ProxyType { NONE, HTTP }
+
+data class ProxySettings(
+    val type: ProxyType = ProxyType.NONE,
+    val host: String = "",
+    val port: Int = 0,
+    val username: String = "",
+    val password: String = "",
+) {
+    val isEnabled: Boolean get() = type != ProxyType.NONE
+    val isValid: Boolean get() = !isEnabled || (host.isNotBlank() && port in 1..65535)
+}
+
 data class UserSettings(
     val credentials: Credentials = Credentials(),
     val delayMs: Int = 500,
+    val proxyType: ProxyType = ProxyType.NONE,
+    val httpProxy: ProxySettings = ProxySettings(type = ProxyType.HTTP),
     val autoResume: Boolean = false,
     val vibration: Boolean = true,
     val statusNotifications: Boolean = true,
     val language: String = "ru",
-)
+) {
+    val proxy: ProxySettings
+        get() = when (proxyType) {
+            ProxyType.HTTP -> httpProxy
+            ProxyType.NONE -> ProxySettings()
+        }
+}
 
 enum class RunPhase { IDLE, CHECKING, WAITING, WARMING, SENDING, SUCCESS, ERROR, STOPPED }
 
@@ -48,6 +69,11 @@ sealed interface AppIntent {
     data class SetToken(val value: String) : AppIntent
     data class SetDeviceId(val value: String) : AppIntent
     data class SetDelay(val value: Int) : AppIntent
+    data class SetProxyType(val value: ProxyType) : AppIntent
+    data class SetProxyHost(val value: String) : AppIntent
+    data class SetProxyPort(val value: String) : AppIntent
+    data class SetProxyUsername(val value: String) : AppIntent
+    data class SetProxyPassword(val value: String) : AppIntent
     data class SetAutoResume(val value: Boolean) : AppIntent
     data class SetVibration(val value: Boolean) : AppIntent
     data class SetStatusNotifications(val value: Boolean) : AppIntent
@@ -56,6 +82,7 @@ sealed interface AppIntent {
     data object Start : AppIntent
     data object Stop : AppIntent
     data object CheckNow : AppIntent
+    data object CheckProxy : AppIntent
     data object DismissMessage : AppIntent
 }
 
@@ -65,5 +92,6 @@ data class AppState(
     val draftDeviceId: String = "",
     val snapshot: ServiceSnapshot = ServiceSnapshot(),
     val isBusy: Boolean = false,
+    val proxyStatus: String? = null,
     val snackbar: String? = null,
 )

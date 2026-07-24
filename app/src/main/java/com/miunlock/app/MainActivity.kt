@@ -9,6 +9,7 @@ import android.os.PowerManager
 import android.provider.Settings
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
@@ -22,6 +23,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -36,6 +38,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -78,7 +81,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -95,7 +100,9 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.miunlock.app.auth.MiLoginActivity
 import com.miunlock.app.domain.AppIntent
 import com.miunlock.app.domain.AppState
+import com.miunlock.app.domain.ProxyType
 import com.miunlock.app.domain.RunPhase
+import com.miunlock.app.data.DebugLog
 import com.miunlock.app.ui.theme.MiOrange
 import com.miunlock.app.ui.theme.MiOrangeSoft
 import com.miunlock.app.ui.theme.MiUnlockTheme
@@ -105,6 +112,7 @@ import kotlinx.coroutines.delay
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class MainActivity : ComponentActivity() {
@@ -146,6 +154,10 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
+    var showConsole by rememberSaveable { mutableStateOf(false) }
+    BackHandler(enabled = showConsole || showSettings) {
+        if (showConsole) showConsole = false else showSettings = false
+    }
     val openNotificationSettings = {
         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
             putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName)
@@ -173,6 +185,10 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
     ) { padding ->
         Box(Modifier.fillMaxSize().padding(padding)) {
             PaperBackground()
+            if (showConsole) {
+                ConsoleScreen(onBack = { showConsole = false })
+                return@Box
+            }
             if (showSettings) {
                 SettingsScreen(state, dispatch, onBack = { showSettings = false }, onBatterySettings = {
                     runCatching {
@@ -194,7 +210,7 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                item { Header(onGitHub = {
+                item { Header(onConsole = { showConsole = true }, onGitHub = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Matvel007/MiUnlockApp")))
                 }) }
                 item { DualClockCard() }
@@ -214,7 +230,7 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
 }
 
 @Composable
-private fun Header(onGitHub: () -> Unit) {
+private fun Header(onConsole: () -> Unit, onGitHub: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "github")
     val scale by transition.animateFloat(
         initialValue = 0.96f,
@@ -225,9 +241,101 @@ private fun Header(onGitHub: () -> Unit) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("MiUnlockApp", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.weight(1f))
+        IconButton(onClick = onConsole) {
+            ConsoleIcon(MaterialTheme.colorScheme.onSurface)
+        }
         IconButton(onClick = onGitHub) {
             Icon(painterResource(R.drawable.ic_github), contentDescription = "GitHub", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(29.dp).graphicsLayer { scaleX = scale; scaleY = scale })
         }
+    }
+}
+
+@Composable
+private fun ConsoleIcon(color: Color) {
+    Canvas(Modifier.size(27.dp)) {
+        drawLine(color, Offset(size.width * .25f, size.height * .25f), Offset(size.width * .10f, size.height * .50f), 3.8f, StrokeCap.Round)
+        drawLine(color, Offset(size.width * .10f, size.height * .50f), Offset(size.width * .25f, size.height * .75f), 3.8f, StrokeCap.Round)
+        drawLine(color, Offset(size.width * .46f, size.height * .78f), Offset(size.width * .66f, size.height * .22f), 3.8f, StrokeCap.Round)
+        drawLine(color, Offset(size.width * .76f, size.height * .76f), Offset(size.width * .91f, size.height * .76f), 3.8f, StrokeCap.Round)
+    }
+}
+
+@Composable
+private fun ConsoleScreen(onBack: () -> Unit) {
+    val events by DebugLog.events.collectAsState()
+    val clipboard = LocalClipboardManager.current
+    val language = LocalLanguage.current
+    Box(Modifier.fillMaxSize()) {
+        PaperBackground()
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(tr("Консоль", "Console"), style = MaterialTheme.typography.displaySmall)
+                    Spacer(Modifier.weight(1f))
+                    TextButton(onClick = { DebugLog.clear() }) { Text(tr("ОЧИСТИТЬ", "CLEAR")) }
+                    TextButton(onClick = onBack) { Text(tr("ГОТОВО", "DONE")) }
+                }
+            }
+            if (events.isEmpty()) {
+                item { Text(tr("Событий пока нет", "No events yet"), color = MaterialTheme.colorScheme.secondary) }
+            } else {
+                items(events.reversed()) { event ->
+                    val message = localizedDebugMessage(event.message, language)
+                    SketchCard(container = Color(0xFF1E1E1E)) {
+                        Text(
+                            event.time.atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS")),
+                            color = MiOrange,
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                        )
+                        Text(
+                            message,
+                            color = Color(0xFFF5F5F5),
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            modifier = Modifier.clickable { clipboard.setText(AnnotatedString(message)) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun localizedDebugMessage(message: String, language: String): String {
+    if (language != "en") return message
+    return when {
+        message == "Журнал очищен" -> "Log cleared"
+        message == "Запуск проверки аккаунта" -> "Account check started"
+        message == "Запуск фоновой подачи заявки" -> "Background application started"
+        message == "Проверка HTTP прокси" -> "HTTP proxy check started"
+        message == "Прокси подключён" -> "Proxy connected"
+        message == "Фоновая задача отменена" -> "Background task cancelled"
+        message.startsWith("Ошибка прокси: ") -> "Proxy error: ${message.removePrefix("Ошибка прокси: ")}"
+        message.startsWith("Ошибка проверки: ") -> "Check error: ${message.removePrefix("Ошибка проверки: ")}"
+        message == "Xiaomi state request через HTTP proxy" -> "Xiaomi state request through HTTP proxy"
+        message == "Xiaomi state request через без прокси" -> "Xiaomi state request without proxy"
+        message.startsWith("Смещение: ") -> message
+            .replace("Смещение", "Advance")
+            .replace("быстрая половина RTT / 2 + запас", "fastest half RTT / 2 + margin")
+        message.startsWith("Проверка завершена: ") -> message
+            .replace("Проверка завершена", "Check complete")
+            .replace("смещение", "advance")
+            .replace("код", "code")
+        message.startsWith("Сервис: ") -> message
+            .replace("Проверяю состояние аккаунта…", "Checking account state…")
+            .replace("Ожидаю окно подачи", "Waiting for application window")
+            .replace("Прогреваю соединение…", "Warming up connection…")
+            .replace("Отправляю заявку…", "Submitting application…")
+            .replace("Сетевая попытка", "Network attempt")
+            .replace("ошибка выполнения", "execution error")
+            .replace("Остановлено пользователем", "Stopped by user")
+            .replace("Остановлено", "Stopped")
+        else -> message
     }
 }
 
@@ -270,7 +378,10 @@ private fun DualClockCard() {
     }
     val instant = Instant.ofEpochMilli(tick)
     val format = DateTimeFormatter.ofPattern("HH:mm:ss")
-    val date = DateTimeFormatter.ofPattern("dd MMM, EEE")
+    val date = DateTimeFormatter.ofPattern(
+        "dd MMM, EEE",
+        if (LocalLanguage.current == "en") Locale.US else Locale("ru"),
+    )
     val localZone = ZoneId.systemDefault()
     val beijingZone = ZoneId.of("Asia/Shanghai")
     val local = instant.atZone(localZone)
@@ -466,6 +577,7 @@ private fun SettingsScreen(
                 }
             }
             item { SettingsCard(state, dispatch, onBatterySettings, onNotificationSettings) }
+            item { ProxyCard(state, dispatch) }
             item {
                 Text(
                     "${tr("Версия", "Version")} ${BuildConfig.VERSION_NAME}",
@@ -502,6 +614,93 @@ private fun SettingsCard(
         }
         Text(tr("Для длительного ожидания не отключайте системное уведомление Mi Unlock. На Xiaomi также включите Автозапуск и режим батареи «Без ограничений».", "For long waits, keep the Mi Unlock system notification enabled. On Xiaomi, also enable Autostart and Unrestricted battery mode."), fontSize = 12.sp, color = MaterialTheme.colorScheme.secondary, modifier = Modifier.padding(top = 8.dp))
     }
+}
+
+@Composable
+private fun ProxyCard(state: AppState, dispatch: (AppIntent) -> Unit) {
+    val proxy = state.settings.proxy
+    val status = if (proxy.isEnabled) state.proxyStatus ?: tr("Прокси не проверен", "Proxy not checked") else null
+    val statusColor = when (status) {
+        "Прокси подключён" -> Color(0xFF239B56)
+        "Прокси недоступен" -> MaterialTheme.colorScheme.error
+        else -> MaterialTheme.colorScheme.secondary
+    }
+    SketchCard {
+        SectionTitle("03", tr("ПРОКСИ ДЛЯ ЗАЯВКИ", "APPLICATION PROXY"))
+        Text(
+            tr(
+                "При включении все запросы Xiaomi для проверки и подачи идут только через этот прокси.",
+                "When enabled, all Xiaomi checks and application requests use only this proxy.",
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ProxyTypeButton(tr("ВЫКЛ", "OFF"), proxy.type == ProxyType.NONE, Modifier.weight(1f)) {
+                dispatch(AppIntent.SetProxyType(ProxyType.NONE))
+            }
+            ProxyTypeButton("HTTP", proxy.type == ProxyType.HTTP, Modifier.weight(1f)) {
+                dispatch(AppIntent.SetProxyType(ProxyType.HTTP))
+            }
+        }
+        if (proxy.isEnabled) {
+            Spacer(Modifier.height(10.dp))
+            OutlinedTextField(
+                value = proxy.host,
+                onValueChange = { dispatch(AppIntent.SetProxyHost(it)) },
+                label = { Text(tr("IP или хост", "IP or host")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = proxy.port.takeIf { it > 0 }?.toString().orEmpty(),
+                onValueChange = { dispatch(AppIntent.SetProxyPort(it.filter(Char::isDigit))) },
+                label = { Text(tr("Порт", "Port")) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = proxy.username,
+                onValueChange = { dispatch(AppIntent.SetProxyUsername(it)) },
+                label = { Text(tr("Логин", "Username")) },
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedTextField(
+                value = proxy.password,
+                onValueChange = { dispatch(AppIntent.SetProxyPassword(it)) },
+                label = { Text(tr("Пароль", "Password")) },
+                visualTransformation = PasswordVisualTransformation(),
+                singleLine = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+            Spacer(Modifier.height(10.dp))
+            Button(
+                onClick = { dispatch(AppIntent.CheckProxy) },
+                enabled = !state.isBusy && proxy.isValid,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(if (state.isBusy) tr("ПРОВЕРЯЮ…", "CHECKING…") else tr("ПРОВЕРИТЬ ПРОКСИ", "CHECK PROXY")) }
+        }
+        status?.let {
+            Text(it, color = statusColor, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 10.dp))
+        }
+    }
+}
+
+@Composable
+private fun ProxyTypeButton(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    OutlinedButton(
+        onClick = onClick,
+        modifier = modifier,
+        colors = ButtonDefaults.outlinedButtonColors(containerColor = if (selected) MiOrangeSoft else Color.Transparent),
+        shape = RoundedCornerShape(14.dp),
+    ) { Text(label) }
 }
 
 @Composable
@@ -571,6 +770,14 @@ private fun phaseTitle(phase: RunPhase) = when (phase) {
 
 private fun localizedMessage(message: String, language: String): String = when {
     language != "en" -> message
+    message.contains(". Смещение: ") -> {
+        val (status, measurement) = message.split(". Смещение: ", limit = 2)
+        buildString {
+            append(localizedMessage(status, "en"))
+            append(". Advance: ")
+            append(measurement.replace("средний RTT", "average RTT").replace("мс", "ms"))
+        }
+    }
     message.startsWith("Доступ к разблокировке уже получен до ") ->
         "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
     message.startsWith("Ошибка аккаунта. Повторите после ") ->

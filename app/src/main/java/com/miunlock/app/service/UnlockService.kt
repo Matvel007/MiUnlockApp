@@ -17,10 +17,12 @@ import com.miunlock.app.R
 import com.miunlock.app.domain.ApplyResult
 import com.miunlock.app.domain.RunPhase
 import com.miunlock.app.domain.ServiceSnapshot
+import com.miunlock.app.data.DebugLog
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -28,6 +30,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Duration
 import java.time.Instant
 import java.time.ZoneId
@@ -41,38 +44,52 @@ class UnlockService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var vibrationEnabled: Boolean = true
     private var statusNotificationsEnabled: Boolean = true
+    private var language: String = "ru"
     private var resultShown = false
     private val notifications by lazy { getSystemService(NotificationManager::class.java) }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        when (intent?.action) {
-            ACTION_STOP -> stopWork("Остановлено пользователем")
-            ACTION_CHECK -> if (runJob?.isActive != true) startWork(checkOnly = true)
-            else -> if (runJob?.isActive != true) startWork()
+        return when (intent?.action) {
+            ACTION_STOP -> {
+                stopWork("Остановлено пользователем")
+                START_NOT_STICKY
+            }
+            ACTION_CHECK -> {
+                if (runJob?.isActive != true) startWork(checkOnly = true)
+                // A manual check must never restart later as a scheduled submission.
+                START_NOT_STICKY
+            }
+            else -> {
+                if (runJob?.isActive != true) startWork()
+                START_STICKY
+            }
         }
-        return START_STICKY
     }
 
     private fun startWork(checkOnly: Boolean = false) {
         resultShown = false
         startForeground(STATUS_NOTIFICATION_ID, statusNotification("Подготовка…"))
         runJob = scope.launch {
-            container.settingsStore.markRunning(true)
-            acquireWakeLock()
             try {
+                if (!checkOnly) container.settingsStore.markRunning(true)
+                acquireWakeLock()
                 runCycle(checkOnly)
             } catch (_: CancellationException) {
-                publish(RunPhase.STOPPED, "Остановлено")
+                DebugLog.add("Фоновая задача отменена")
             } catch (t: Throwable) {
                 val msg = "Ошибка: ${t.message ?: "неизвестная"}"
+                DebugLog.add("Ошибка фоновой задачи: ${t::class.simpleName ?: "неизвестная"}")
                 publish(RunPhase.ERROR, msg)
                 showResult(false, msg)
             } finally {
                 if (!resultShown) notifications.cancel(STATUS_INDICATOR_NOTIFICATION_ID)
                 releaseWakeLock()
-                container.settingsStore.markRunning(false)
+                if (!checkOnly) withContext(NonCancellable) {
+                    container.settingsStore.markRunning(false)
+                }
+                runJob = null
                 stopForeground(STOP_FOREGROUND_DETACH)
                 stopSelf()
             }
@@ -83,10 +100,11 @@ class UnlockService : Service() {
         val settings = container.settingsStore.current()
         vibrationEnabled = settings.vibration
         statusNotificationsEnabled = settings.statusNotifications
+        language = settings.language
         require(settings.credentials.isValid) { "Укажите serviceToken и deviceId" }
 
         publish(RunPhase.CHECKING, "Проверяю состояние аккаунта…")
-        val state = retryNetwork { container.api.checkState(settings.credentials) }
+        val state = retryNetwork { container.api.checkState(settings.credentials, settings.proxy) }
         if (checkOnly) {
             val successful = state.code == 1 || state.code == 2
             publish(if (successful) RunPhase.SUCCESS else RunPhase.ERROR, state.message)
@@ -121,7 +139,7 @@ class UnlockService : Service() {
             if (!warmed && remainingMs <= 10_000) {
                 warmed = true
                 publish(RunPhase.WARMING, "Прогреваю соединение…", target)
-                scope.launch { container.api.warmUp(settings.credentials) }
+                scope.launch { container.api.warmUp(settings.credentials, settings.proxy) }
             }
             val label = formatCountdown(remainingMs)
             updateForeground("До отправки: $label")
@@ -136,7 +154,7 @@ class UnlockService : Service() {
         }
 
         publish(RunPhase.SENDING, "Отправляю заявку…", target)
-        val result = retryNetwork { container.api.apply(settings.credentials) }
+        val result = retryNetwork { container.api.apply(settings.credentials, settings.proxy) }
         val phase = if (result.successful) RunPhase.SUCCESS else RunPhase.ERROR
         publish(phase, result.message, target, result.serverTime)
         showResult(result.successful, result.message, result)
@@ -149,6 +167,8 @@ class UnlockService : Service() {
             attempt++
             try {
                 return block()
+            } catch (e: CancellationException) {
+                throw e
             } catch (t: Throwable) {
                 last = t
                 publish(RunPhase.CHECKING, "Сетевая попытка $attempt/6…", attempt = attempt)
@@ -166,24 +186,24 @@ class UnlockService : Service() {
         attempt: Int = snapshot.value.attempt,
     ) {
         _snapshot.value = ServiceSnapshot(phase, message, target, serverTime, Instant.now(), attempt)
+        val logMessage = if (phase == RunPhase.ERROR) "ошибка выполнения" else message
+        DebugLog.add("Сервис: ${phase.name} - $logMessage")
         updateForeground(message)
     }
 
     private fun stopWork(message: String) {
         publish(RunPhase.STOPPED, message)
-        runJob?.cancel()
-        runJob = null
-        scope.launch { container.settingsStore.markRunning(false) }
-        releaseWakeLock()
-        notifications.cancel(STATUS_INDICATOR_NOTIFICATION_ID)
-        stopForeground(STOP_FOREGROUND_REMOVE)
-        stopSelf()
+        runJob?.cancel() ?: scope.launch {
+            withContext(NonCancellable) { container.settingsStore.markRunning(false) }
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+        }
     }
 
     private fun statusNotification(text: String) = NotificationCompat.Builder(this, STATUS_CHANNEL)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle(if (statusNotificationsEnabled) "Mi Unlock работает" else "Mi Unlock")
-        .setContentText(if (statusNotificationsEnabled) text else "Фоновая задача активна")
+        .setContentTitle(if (statusNotificationsEnabled) t("Mi Unlock работает", "Mi Unlock is running") else "Mi Unlock")
+        .setContentText(if (statusNotificationsEnabled) notificationMessage(text) else t("Фоновая задача активна", "Background task is active"))
         .setOnlyAlertOnce(true)
         .setOngoing(true)
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
@@ -191,7 +211,7 @@ class UnlockService : Service() {
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .setContentIntent(openAppIntent())
         .apply {
-            if (statusNotificationsEnabled) addAction(0, "Остановить", stopIntent())
+            if (statusNotificationsEnabled) addAction(0, t("Остановить", "Stop"), stopIntent())
         }
         .build()
 
@@ -206,25 +226,25 @@ class UnlockService : Service() {
 
     private fun statusIndicatorNotification(text: String) = NotificationCompat.Builder(this, STATUS_INDICATOR_CHANNEL)
         .setSmallIcon(R.drawable.ic_notification)
-        .setContentTitle("MiUnlockApp — ожидание запроса")
-        .setContentText(text)
+        .setContentTitle(t("MiUnlockApp — ожидание запроса", "MiUnlockApp — waiting to send"))
+        .setContentText(notificationMessage(text))
         .setOnlyAlertOnce(true)
         .setSilent(true)
         // MIUI filters ongoing notifications from its shade, so this visible copy must stay regular.
         .setAutoCancel(false)
         .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
         .setContentIntent(openAppIntent())
-        .addAction(0, "Остановить", stopIntent())
+        .addAction(0, t("Остановить", "Stop"), stopIntent())
         .build()
 
     private fun showResult(success: Boolean, message: String, result: ApplyResult? = null) {
         resultShown = true
         val server = result?.serverTime?.atZone(ZoneId.of("Asia/Shanghai"))
             ?.format(DateTimeFormatter.ofPattern("HH:mm:ss"))
-        val detail = if (server == null) message else "$message · сервер: $server GMT+8"
+        val detail = if (server == null) notificationMessage(message) else "${notificationMessage(message)} · ${t("сервер", "server")}: $server GMT+8"
         val notification = NotificationCompat.Builder(this, RESULT_CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(if (success) "Готово — заявка принята" else "Результат заявки")
+            .setContentTitle(if (success) t("Готово — заявка принята", "Done — application accepted") else t("Результат заявки", "Application result"))
             .setContentText(detail)
             .setStyle(NotificationCompat.BigTextStyle().bigText(detail))
             .setAutoCancel(true)
@@ -240,6 +260,31 @@ class UnlockService : Service() {
             getSystemService(Vibrator::class.java)?.vibrate(
                 VibrationEffect.createWaveform(longArrayOf(0, 90, 70, 180), -1)
             )
+        }
+    }
+
+    private fun t(ru: String, en: String) = if (language == "en") en else ru
+
+    private fun notificationMessage(message: String): String {
+        if (language != "en") return message
+        return when {
+            message == "Подготовка…" -> "Preparing…"
+            message == "Проверяю состояние аккаунта…" -> "Checking account status…"
+            message == "Ожидаю окно подачи" -> "Waiting for application window"
+            message == "Прогреваю соединение…" -> "Warming up connection…"
+            message == "Отправляю заявку…" -> "Submitting application…"
+            message == "Остановлено" -> "Stopped"
+            message.startsWith("Сетевая попытка ") -> "Network attempt ${message.removePrefix("Сетевая попытка ")}"
+            message.startsWith("Ошибка: ") -> "Error: ${message.removePrefix("Ошибка: ")}"
+            message == "Можно подать заявку" -> "You can submit an application"
+            message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
+            message == "Заявка успешно подана" -> "Application submitted successfully"
+            message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
+            message == "Повторите через минуту" -> "Try again in a minute"
+            message == "Повторите позже" -> "Try again later"
+            message == "Пустой ответ сервера" -> "Empty server response"
+            message == "Неизвестный ответ Xiaomi" -> "Unknown Xiaomi response"
+            else -> message
         }
     }
 

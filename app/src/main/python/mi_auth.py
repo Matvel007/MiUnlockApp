@@ -1,6 +1,8 @@
 import base64
 import hashlib
 import json
+import re
+from http.cookies import SimpleCookie
 from urllib.parse import quote, urlparse, parse_qs
 
 import requests
@@ -13,6 +15,7 @@ SEND_EMAIL = "https://account.xiaomi.com/identity/auth/sendEmailTicket"
 SEND_PHONE = "https://account.xiaomi.com/identity/auth/sendPhoneTicket"
 VERIFY_EMAIL = "https://account.xiaomi.com/identity/auth/verifyEmail"
 VERIFY_PHONE = "https://account.xiaomi.com/identity/auth/verifyPhone"
+LONGPOLLING_URL = "https://account.xiaomi.com/longPolling/loginUrl"
 
 session = requests.Session()
 session.headers.update({
@@ -43,6 +46,17 @@ def _message(ru, en):
 def set_language(value):
     global language
     language = "en" if value == "en" else "ru"
+    return _reply({"ok": True})
+
+
+def set_proxy(host, port, username, password):
+    session.proxies.clear()
+    if host and port:
+        credentials = ""
+        if username:
+            credentials = "{}:{}@".format(quote(username, safe=""), quote(password, safe=""))
+        proxy_url = "http://{}{}:{}".format(credentials, host, port)
+        session.proxies.update({"http": proxy_url, "https": proxy_url})
     return _reply({"ok": True})
 
 
@@ -131,3 +145,81 @@ def exchange(sid):
     if not token:
         return _reply({"ok": False, "error": _message("Mi Community не выдал new_bbs_serviceToken", "Mi Community did not provide new_bbs_serviceToken")})
     return _reply({"ok": True, "token": token, "deviceId": required["deviceId"]})
+
+
+def qr_request(auth_data_json):
+    global auth_data
+    auth_data = json.loads(auth_data_json)
+    response = _json(session.get(LONGPOLLING_URL, params=auth_data))
+    lp = response["lp"]
+    return _reply({
+        "ok": True,
+        "loginUrl": response["loginUrl"],
+        "lp": lp,
+        "timeout": response["timeout"],
+        "tips": response.get("qrTips", ""),
+        "cookieNames": sorted(session.cookies.get_dict().keys()),
+        "cookieHeader": "; ".join("{}={}".format(key, value) for key, value in session.cookies.get_dict().items()),
+    })
+
+
+def qr_auth_data(sid):
+    session.cookies.clear()
+    initial = _json(session.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
+    data = {
+        "sid": sid,
+        "_json": False,
+        "serviceParam": initial["serviceParam"],
+        "qs": initial["qs"],
+        "callback": initial["callback"],
+        "_sign": initial["_sign"],
+    }
+    return _reply({
+        "ok": True,
+        "authData": json.dumps(data),
+        "cookieNames": sorted(session.cookies.get_dict().keys()),
+    })
+
+
+def qr_poll(lp, timeout_ms):
+    for attempt in range(3):
+        try:
+            response = session.get(lp, timeout=int(timeout_ms) / 1000 + 2)
+            _json(response)
+            return _reply({"ok": True, "scanned": True, "expired": False})
+        except requests.exceptions.Timeout:
+            return _reply({"ok": True, "scanned": False, "expired": True})
+        except requests.exceptions.ConnectionError as error:
+            if attempt < 2:
+                continue
+            detail = _safe_qr_error(error)
+            return _reply({"ok": False, "error": "QR long-poll ConnectionError: {}".format(detail)})
+        except Exception as error:
+            detail = _safe_qr_error(error)
+            return _reply({"ok": False, "error": "QR long-poll {}: {}".format(type(error).__name__, detail)})
+
+
+def qr_apply_cookies(set_cookies_json):
+    for header in json.loads(set_cookies_json):
+        parsed = SimpleCookie()
+        parsed.load(header)
+        for key, morsel in parsed.items():
+            session.cookies.set(key, morsel.value)
+    return _reply({"ok": True})
+
+
+def _safe_qr_error(error):
+    detail = re.sub(r"https?://[^\s']+", "<url>", str(error))
+    detail = re.sub(r"(/lp/[^?\s)]+)\?[^\s)]+", r"\1?<redacted>", detail)
+    return detail[:160]
+
+
+def qr_png(url):
+    import qrcode
+    import io
+    qr = qrcode.QRCode(version=1, box_size=14, border=2)
+    qr.add_data(url)
+    img = qr.make_image()
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return _reply({"ok": True, "pngBase64": base64.b64encode(buf.getvalue()).decode()})

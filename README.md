@@ -5,7 +5,7 @@
 **A simple companion for preparing a Xiaomi bootloader-unlock application.**
 
 [![Русский](https://img.shields.io/badge/README-%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-ff6900)](README_RU.md)
-[![Version](https://img.shields.io/badge/version-1.0-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Version](https://img.shields.io/badge/version-1.1-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 
@@ -21,11 +21,14 @@
 
 ## What It Does
 
-- Sign in with a Xiaomi Account directly in the app.
+- Sign in with a Xiaomi Account directly in the app, including QR sign-in.
 - Check whether the account is ready for an unlock application.
+- Measure Xiaomi API response time during the check and automatically set a recommended request advance.
 - Wait for the right time and send the application automatically.
+- Optionally route Xiaomi Account sign-in, API checks, and the application request through an HTTP proxy.
 - Stay active in the background with the screen off.
 - Show a live status in notifications, including a stop button.
+- Open the built-in debug console for safe diagnostic events.
 - Display Russian or English with one tap.
 - Keep account details on the device only.
 
@@ -42,8 +45,9 @@
 3. On Xiaomi phones, also allow Autostart and set battery use to **No restrictions**.
 4. Return to the main screen and sign in to your Xiaomi Account.
 5. Tap **Check** to see the account status.
-6. Tap **Start** when the account is ready.
-7. The app keeps working in the background. The notification shows its current status and lets you stop it at any time.
+6. Optionally configure and test an HTTP proxy in **Settings** before the check.
+7. Tap **Start** when the account is ready.
+8. The app keeps working in the background. The notification shows its current status and lets you stop it at any time.
 
 ## Important
 
@@ -54,9 +58,10 @@
 
 ## Privacy
 
-- Your password is used only while you sign in and is not saved.
+- Your password and one-time verification code are used only while you sign in and are not saved.
 - The app keeps the session needed for the application on your device.
-- Your account details are not sent to third-party services.
+- If configured, proxy address and credentials are kept locally on the device to use the chosen proxy for Xiaomi API requests.
+- Without a configured proxy, account details are sent only to Xiaomi. A proxy provider can observe connection metadata; use only a proxy you trust.
 
 ## License
 
