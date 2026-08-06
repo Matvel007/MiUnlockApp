@@ -5,7 +5,7 @@
 **A simple companion for preparing a Xiaomi bootloader-unlock application.**
 
 [![Русский](https://img.shields.io/badge/README-%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-ff6900)](README_RU.md)
-[![Version](https://img.shields.io/badge/version-1.1-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Version](https://img.shields.io/badge/version-1.2-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 

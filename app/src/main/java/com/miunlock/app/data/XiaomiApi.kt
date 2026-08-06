@@ -122,7 +122,7 @@ class XiaomiApi {
         )
     }
 
-    private fun parseState(root: JSONObject): StateResult {
+    internal fun parseState(root: JSONObject): StateResult {
         val code = root.optInt("code", -1)
         if (code != 0) return StateResult(-1, errorMessage(code, root.optString("msg", "Ошибка API")))
         val data = root.optJSONObject("data") ?: return StateResult(-1, "Пустой ответ сервера")
@@ -135,7 +135,7 @@ class XiaomiApi {
         }
     }
 
-    private fun parseApply(root: JSONObject): ApplyResult {
+    internal fun parseApply(root: JSONObject): ApplyResult {
         val serverTime = root.optLong("ts", 0).takeIf { it > 0 }?.let(Instant::ofEpochSecond)
         val code = root.optInt("code", -1)
         if (code != 0) return ApplyResult(-1, errorMessage(code, root.optString("msg", "Ошибка API")), serverTime)
