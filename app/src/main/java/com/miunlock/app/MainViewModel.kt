@@ -107,7 +107,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             DebugLog.add("RTT: ${check.samplesMs.joinToString(", ")} мс")
             DebugLog.add("Смещение: ${check.recommendedDelayMs} мс (быстрая половина RTT / 2 + запас)")
             DebugLog.add("Проверка завершена: RTT ${check.averageRttMs} мс, смещение ${check.recommendedDelayMs} мс, код ${check.state.code}")
-            snackbar.value = "${check.state.message}. Смещение: ${check.recommendedDelayMs} мс (средний RTT ${check.averageRttMs} мс)"
+            val statusText = when (check.state.code) {
+                1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${check.state.deadline}"
+                2 -> "📋 Разрешения НЕТ (можно подать заявку). Смещение: ${check.recommendedDelayMs} мс (средний RTT ${check.averageRttMs} мс)"
+                3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${check.state.deadline})"
+                4 -> "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней"
+                else -> "${check.state.message}. Смещение: ${check.recommendedDelayMs} мс"
+            }
+            snackbar.value = statusText
         } catch (error: Exception) {
             if (state.value.settings.proxy.isEnabled) proxyStatus.value = "Прокси недоступен"
             DebugLog.add("Ошибка проверки: ${errorSummary(error)}")

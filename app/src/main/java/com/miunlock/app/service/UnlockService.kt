@@ -105,20 +105,27 @@ class UnlockService : Service() {
 
         publish(RunPhase.CHECKING, "Проверяю состояние аккаунта…")
         val state = retryNetwork { container.api.checkState(settings.credentials, settings.proxy) }
+        val statusMessage = when (state.code) {
+            1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${state.deadline}"
+            2 -> "📋 Разрешения НЕТ (можно подать заявку)"
+            3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${state.deadline})"
+            4 -> "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней"
+            else -> state.message
+        }
         if (checkOnly) {
-            val successful = state.code == 1 || state.code == 2
-            publish(if (successful) RunPhase.SUCCESS else RunPhase.ERROR, state.message)
-            showResult(successful, state.message)
+            val isGranted = state.code == 1
+            publish(if (isGranted) RunPhase.SUCCESS else RunPhase.IDLE, statusMessage)
+            showResult(isGranted, statusMessage)
             return
         }
         if (state.code == 1) {
-            publish(RunPhase.SUCCESS, state.message)
-            showResult(true, state.message)
+            publish(RunPhase.SUCCESS, statusMessage)
+            showResult(true, statusMessage)
             return
         }
         if (state.code != 2) {
-            publish(RunPhase.ERROR, state.message)
-            showResult(false, state.message)
+            publish(RunPhase.ERROR, statusMessage)
+            showResult(false, statusMessage)
             return
         }
 
@@ -154,7 +161,26 @@ class UnlockService : Service() {
         }
 
         publish(RunPhase.SENDING, "Отправляю заявку…", target)
-        val result = retryNetwork { container.api.apply(settings.credentials, settings.proxy) }
+        var result = retryNetwork { container.api.apply(settings.credentials, settings.proxy) }
+        if (!result.successful) {
+            DebugLog.add("Первичный ответ Xiaomi: ${result.message}. Проверяю фактический статус аккаунта...")
+            publish(RunPhase.CHECKING, "Проверяю фактический статус аккаунта…", target)
+            delay(1500)
+            runCatching {
+                val state = retryNetwork { container.api.checkState(settings.credentials, settings.proxy) }
+                if (state.code == 1) {
+                    DebugLog.add("Контрольная проверка: доступ поднят! (${state.message})")
+                    result = ApplyResult(
+                        code = 1,
+                        message = "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)",
+                        serverTime = result.serverTime,
+                        successful = true,
+                    )
+                } else {
+                    DebugLog.add("Контрольная проверка: доступ не поднят (${state.message})")
+                }
+            }
+        }
         val phase = if (result.successful) RunPhase.SUCCESS else RunPhase.ERROR
         publish(phase, result.message, target, result.serverTime)
         showResult(result.successful, result.message, result)
@@ -267,18 +293,69 @@ class UnlockService : Service() {
 
     private fun notificationMessage(message: String): String {
         if (language != "en") return message
+        if (message.contains(". Смещение: ")) {
+            val (status, measurement) = message.split(". Смещение: ", limit = 2)
+            return buildString {
+                append(notificationMessage(status))
+                append(". Advance: ")
+                append(measurement.replace("средний RTT", "average RTT").replace("мс", "ms"))
+            }
+        }
         return when {
+            message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ") ->
+                "🎉 PERMISSION GRANTED! Access granted until ${message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ")}"
+            message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ к разблокировке выдан до ") ->
+                "🎉 PERMISSION GRANTED! Unlock access granted until ${message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ к разблокировке выдан до ")}"
+            message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! ") ->
+                "🎉 PERMISSION GRANTED! ${notificationMessage(message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! "))}"
+
+            message == "📋 Разрешения НЕТ (можно подать заявку)" ->
+                "📋 NO PERMISSION YET (ready to submit application)"
+            message.startsWith("📋 Разрешения НЕТ (можно подать заявку)") ->
+                "📋 NO PERMISSION YET (ready to submit application)${message.removePrefix("📋 Разрешения НЕТ (можно подать заявку)")}"
+
+            message == "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней" ->
+                "⛔ NO PERMISSION. The account must be registered for more than 30 days"
+            message.startsWith("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ") ->
+                "⛔ NO PERMISSION. Account error (retry after ${message.removePrefix("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ").removeSuffix(")")})" +
+                    if (message.endsWith(")")) ")" else ""
+            message.startsWith("⛔ Разрешения НЕТ. ") ->
+                "⛔ NO PERMISSION. ${notificationMessage(message.removePrefix("⛔ Разрешения НЕТ. "))}"
+
+            message.startsWith("Доступ к разблокировке уже получен до ") ->
+                "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
+            message.startsWith("Ошибка аккаунта. Повторите после ") ->
+                "Account error. Retry after ${message.removePrefix("Ошибка аккаунта. Повторите после ")}"
+            message.startsWith("Лимит заявок исчерпан. Повторите после ") ->
+                "Application limit reached. Retry after ${message.removePrefix("Лимит заявок исчерпан. Повторите после ")}"
+            message.startsWith("Ошибка проверки: ") ->
+                "Check failed: ${message.removePrefix("Ошибка проверки: ")}"
+            message.startsWith("Ошибка прокси: ") ->
+                "Proxy error: ${message.removePrefix("Ошибка прокси: ")}"
+            message.startsWith("До отправки: ") ->
+                "Until sending: ${message.removePrefix("До отправки: ")}"
+            message.startsWith("Сетевая попытка ") ->
+                "Network attempt ${message.removePrefix("Сетевая попытка ")}"
+            message.startsWith("Ошибка: ") ->
+                "Error: ${message.removePrefix("Ошибка: ")}"
+
             message == "Подготовка…" -> "Preparing…"
+            message == "Готово к запуску" -> "Ready to start"
             message == "Проверяю состояние аккаунта…" -> "Checking account status…"
-            message == "Ожидаю окно подачи" -> "Waiting for application window"
+            message == "Проверяю фактический статус аккаунта…" -> "Checking actual account status…"
+            message == "Ожидаю окно подачи" -> "Waiting for submission window"
             message == "Прогреваю соединение…" -> "Warming up connection…"
             message == "Отправляю заявку…" -> "Submitting application…"
             message == "Остановлено" -> "Stopped"
-            message.startsWith("Сетевая попытка ") -> "Network attempt ${message.removePrefix("Сетевая попытка ")}"
-            message.startsWith("Ошибка: ") -> "Error: ${message.removePrefix("Ошибка: ")}"
+            message == "Остановлено пользователем" -> "Stopped by user"
+            message == "Сетевая ошибка" -> "Network error"
+            message == "Данные сохранены локально" -> "Data saved locally"
+            message == "Сначала укажите serviceToken и deviceId" -> "Enter serviceToken and deviceId first"
+            message == "Сначала укажите данные аккаунта" -> "Enter account details first"
             message == "Можно подать заявку" -> "You can submit an application"
             message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
             message == "Заявка успешно подана" -> "Application submitted successfully"
+            message == "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)" -> "Access granted! (Xiaomi returned quota error, but access is active)"
             message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
             message == "Повторите через минуту" -> "Try again in a minute"
             message == "Повторите позже" -> "Try again later"

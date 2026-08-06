@@ -5,7 +5,7 @@
 **Простое приложение для подготовки заявки на разблокировку загрузчика Xiaomi.**
 
 [![English](https://img.shields.io/badge/README-English-ff6900)](README.md)
-[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.1-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.2-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 

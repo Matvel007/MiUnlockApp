@@ -768,41 +768,80 @@ private fun phaseTitle(phase: RunPhase) = when (phase) {
     RunPhase.STOPPED -> tr("Остановлено", "Stopped")
 }
 
-private fun localizedMessage(message: String, language: String): String = when {
-    language != "en" -> message
-    message.contains(". Смещение: ") -> {
+private fun localizedMessage(message: String, language: String): String {
+    if (language != "en") return message
+    if (message.contains(". Смещение: ")) {
         val (status, measurement) = message.split(". Смещение: ", limit = 2)
-        buildString {
+        return buildString {
             append(localizedMessage(status, "en"))
             append(". Advance: ")
             append(measurement.replace("средний RTT", "average RTT").replace("мс", "ms"))
         }
     }
-    message.startsWith("Доступ к разблокировке уже получен до ") ->
-        "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
-    message.startsWith("Ошибка аккаунта. Повторите после ") ->
-        "Account error. Retry after ${message.removePrefix("Ошибка аккаунта. Повторите после ")}"
-    message.startsWith("Лимит заявок исчерпан. Повторите после ") ->
-        "Application limit reached. Retry after ${message.removePrefix("Лимит заявок исчерпан. Повторите после ")}"
-    message.startsWith("Ошибка проверки: ") ->
-        "Check failed: ${message.removePrefix("Ошибка проверки: ")}"
-    message == "Готово к запуску" -> "Ready to start"
-    message == "Ожидаю окно подачи" -> "Waiting for submission window"
-    message == "Проверяю состояние аккаунта…" -> "Checking account status…"
-    message == "Прогреваю соединение…" -> "Warming up connection…"
-    message == "Отправляю заявку…" -> "Submitting request…"
-    message == "Остановлено" -> "Stopped"
-    message == "Данные сохранены локально" -> "Data saved locally"
-    message == "Сначала укажите serviceToken и deviceId" -> "Enter serviceToken and deviceId first"
-    message == "Сначала укажите данные аккаунта" -> "Enter account details first"
-    message == "Можно подать заявку" -> "You can submit an application"
-    message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
-    message == "Заявка успешно подана" -> "Application submitted successfully"
-    message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
-    message == "Повторите через минуту" -> "Try again in a minute"
-    message == "Повторите позже" -> "Try again later"
-    message == "Пустой ответ сервера" -> "Empty server response"
-    message == "Неизвестный ответ Xiaomi" -> "Unknown Xiaomi response"
-    message == "Ошибка параметров" -> "Invalid parameters"
-    else -> message
+    return when {
+        message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ") ->
+            "🎉 PERMISSION GRANTED! Access granted until ${message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ")}"
+        message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ к разблокировке выдан до ") ->
+            "🎉 PERMISSION GRANTED! Unlock access granted until ${message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ к разблокировке выдан до ")}"
+        message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! ") ->
+            "🎉 PERMISSION GRANTED! ${localizedMessage(message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! "), "en")}"
+
+        message == "📋 Разрешения НЕТ (можно подать заявку)" ->
+            "📋 NO PERMISSION YET (ready to submit application)"
+        message.startsWith("📋 Разрешения НЕТ (можно подать заявку)") ->
+            "📋 NO PERMISSION YET (ready to submit application)${message.removePrefix("📋 Разрешения НЕТ (можно подать заявку)")}"
+
+        message == "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней" ->
+            "⛔ NO PERMISSION. The account must be registered for more than 30 days"
+        message.startsWith("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ") ->
+            "⛔ NO PERMISSION. Account error (retry after ${message.removePrefix("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ").removeSuffix(")")})" +
+                if (message.endsWith(")")) ")" else ""
+        message.startsWith("⛔ Разрешения НЕТ. ") ->
+            "⛔ NO PERMISSION. ${localizedMessage(message.removePrefix("⛔ Разрешения НЕТ. "), "en")}"
+
+        message.startsWith("Доступ к разблокировке уже получен до ") ->
+            "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
+        message.startsWith("Ошибка аккаунта. Повторите после ") ->
+            "Account error. Retry after ${message.removePrefix("Ошибка аккаунта. Повторите после ")}"
+        message.startsWith("Лимит заявок исчерпан. Повторите после ") ->
+            "Application limit reached. Retry after ${message.removePrefix("Лимит заявок исчерпан. Повторите после ")}"
+        message.startsWith("Ошибка проверки: ") ->
+            "Check failed: ${message.removePrefix("Ошибка проверки: ")}"
+        message.startsWith("Ошибка прокси: ") ->
+            "Proxy error: ${message.removePrefix("Ошибка прокси: ")}"
+        message.startsWith("До отправки: ") ->
+            "Until sending: ${message.removePrefix("До отправки: ")}"
+        message.startsWith("Сетевая попытка ") ->
+            "Network attempt ${message.removePrefix("Сетевая попытка ")}"
+        message.startsWith("Ошибка: ") ->
+            "Error: ${message.removePrefix("Ошибка: ")}"
+
+        message == "Подготовка…" -> "Preparing…"
+        message == "Готово к запуску" -> "Ready to start"
+        message == "Проверяю состояние аккаунта…" -> "Checking account status…"
+        message == "Проверяю фактический статус аккаунта…" -> "Checking actual account status…"
+        message == "Ожидаю окно подачи" -> "Waiting for submission window"
+        message == "Прогреваю соединение…" -> "Warming up connection…"
+        message == "Отправляю заявку…" -> "Submitting request…"
+        message == "Остановлено" -> "Stopped"
+        message == "Остановлено пользователем" -> "Stopped by user"
+        message == "Сетевая ошибка" -> "Network error"
+        message == "Данные сохранены локально" -> "Data saved locally"
+        message == "Сначала укажите serviceToken и deviceId" -> "Enter serviceToken and deviceId first"
+        message == "Сначала укажите данные аккаунта" -> "Enter account details first"
+        message == "Можно подать заявку" -> "You can submit an application"
+        message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
+        message == "Заявка успешно подана" -> "Application submitted successfully"
+        message == "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)" -> "Access granted! (Xiaomi returned quota error, but access is active)"
+        message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
+        message == "Повторите через минуту" -> "Try again in a minute"
+        message == "Повторите позже" -> "Try again later"
+        message == "Пустой ответ сервера" -> "Empty server response"
+        message == "Неизвестный ответ Xiaomi" -> "Unknown Xiaomi response"
+        message == "Ошибка параметров" -> "Invalid parameters"
+        message == "Прокси недоступен" -> "Proxy unavailable"
+        message == "Прокси подключён" -> "Proxy connected"
+        message == "Прокси не проверен" -> "Proxy not verified"
+        else -> message
+    }
 }
