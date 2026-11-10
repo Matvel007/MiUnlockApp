@@ -5,7 +5,7 @@
 **A simple companion for preparing a Xiaomi bootloader-unlock application.**
 
 [![Русский](https://img.shields.io/badge/README-%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-ff6900)](README_RU.md)
-[![Version](https://img.shields.io/badge/version-1.2-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Version](https://img.shields.io/badge/version-1.3-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 
@@ -31,12 +31,19 @@
 - Open the built-in debug console for safe diagnostic events.
 - Display Russian or English with one tap.
 - Keep account details on the device only.
+- Run on both 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.
 
 ## Install
 
 1. Download the latest APK from **Releases**.
 2. Allow installation from the app you used to download the file.
 3. Install and open MiUnlockApp.
+
+## Compatibility
+
+- Android 8.0 (API 26) or newer.
+- ARM processors: **arm64-v8a** (ARMv8, 64-bit) and **armeabi-v7a** (ARMv7, 32-bit).
+- x86/x86_64 phones and emulators are not supported: the APK ships only ARM native libraries.
 
 ## How To Use
 
@@ -69,6 +76,6 @@ This project is available under the [MIT License](LICENSE).
 
 <div align="center">
 
-Made for Android with ChatGPT 5.6 Terra ❤️
+Made for Android with ChatGPT 5.6 Terra and DeepSeek-V4.1 Flash ❤️
 
 </div>

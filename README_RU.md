@@ -5,7 +5,7 @@
 **Простое приложение для подготовки заявки на разблокировку загрузчика Xiaomi.**
 
 [![English](https://img.shields.io/badge/README-English-ff6900)](README.md)
-[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.2-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.3-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 
@@ -31,12 +31,19 @@
 - Встроенная консоль отладки с безопасными диагностическими событиями.
 - Переключение между русским и английским языком одним нажатием.
 - Данные аккаунта остаются на устройстве.
+- Работа на 64-битных (arm64-v8a) и 32-битных (armeabi-v7a) ARM-устройствах.
 
 ## Установка
 
 1. Скачайте последний APK из раздела **Releases**.
 2. Разрешите установку приложений из источника, которым был скачан файл.
 3. Установите и откройте MiUnlockApp.
+
+## Совместимость
+
+- Android 8.0 (API 26) и новее.
+- ARM-процессоры: **arm64-v8a** (ARMv8, 64 бита) и **armeabi-v7a** (ARMv7, 32 бита).
+- Телефоны и эмуляторы на x86/x86_64 не поддерживаются: в APK только ARM-библиотеки.
 
 ## Как пользоваться
 
@@ -69,6 +76,6 @@
 
 <div align="center">
 
-Сделано на Android с помощью ChatGPT 5.6 Terra ❤️
+Сделано на Android с помощью ChatGPT 5.6 Terra и DeepSeek-V4.1 Flash ❤️
 
 </div>
