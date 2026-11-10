@@ -9,6 +9,7 @@
 .cxx
 local.properties
 /key/
+/release/
 /app/build/
 **/__pycache__/
 *.py[cod]
