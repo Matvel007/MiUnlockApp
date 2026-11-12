@@ -122,6 +122,27 @@ class PythonMiAuth(context: Context) {
     suspend fun verifyCode(method: String, code: String, sid: String): PythonLoginResult =
         callLogin("verify_code", method, code, sid)
 
+    /** Страна аккаунта и его дата-центр — из официального ответа Xiaomi. */
+    data class AccountZone(val region: String, val zone: String)
+
+    /** Подставляет cookies сохранённой сессии, чтобы уточнить зону без нового входа. */
+    suspend fun applySession(cookies: Map<String, String>) = withContext(Dispatchers.IO) {
+        if (cookies.isEmpty()) return@withContext
+        val payload = JSONObject(cookies as Map<*, *>).toString()
+        runCatching { call("apply_session", payload) }
+            .onFailure { DebugLog.warn(LogTag.AUTH, "cookies сессии не применены: ${it.message}") }
+        Unit
+    }
+
+    suspend fun accountZone(): AccountZone = withContext(Dispatchers.IO) {
+        val result = call("account_zone")
+        if (!result.optBoolean("ok")) {
+            DebugLog.warn(LogTag.AUTH, "регион аккаунта не получен: ${result.optString("error")}")
+            return@withContext AccountZone("", "")
+        }
+        AccountZone(result.optString("region"), result.optString("zone"))
+    }
+
     suspend fun exchange(sid: String): Pair<String, String> {
         val result = call("exchange", sid)
         requireOk(result)

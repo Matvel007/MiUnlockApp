@@ -65,6 +65,7 @@ import com.miunlock.app.data.LogLevel
 import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.Credentials
 import com.miunlock.app.service.QrLoginService
+import com.miunlock.app.unlock.UnlockApi
 import com.miunlock.app.ui.theme.MiOrange
 import com.miunlock.app.ui.theme.MiUnlockTheme
 import kotlinx.coroutines.delay
@@ -340,6 +341,13 @@ class MiLoginActivity : ComponentActivity() {
         if (login.ssecurity.isBlank() || login.userId.isBlank()) {
             error(t("Сервер не выдал ssecurity", "Server did not provide ssecurity"))
         }
+        // Зона данных — из ответа самого аккаунта. Домен unlock.update.*
+        // зависит от дата-центра, и запрос в чужой отклоняется сервером.
+        val account = auth.accountZone()
+        val zone = account.zone.ifBlank { UnlockApi.ZONE_SINGAPORE }
+        DebugLog.add(
+            "Разблокировка: регион аккаунта ${account.region.ifBlank { "?" }}, зона $zone",
+        )
         val container = (application as MiUnlockApp).container
         val current = container.unlockStore.session()
         container.unlockStore.saveSession(
@@ -350,6 +358,7 @@ class MiLoginActivity : ComponentActivity() {
                 deviceId = login.deviceId,
                 cookies = login.cookies,
                 sid = SID_UNLOCK,
+                zone = zone,
             ),
         )
         DebugLog.add("Разблокировка: сессия Mi Account получена")

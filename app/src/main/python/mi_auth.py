@@ -11,6 +11,8 @@ SERVICE_LOGIN = "https://account.xiaomi.com/pass/serviceLogin"
 SERVICE_LOGIN_AUTH2 = "https://account.xiaomi.com/pass/serviceLoginAuth2"
 IDENTITY_LIST = "https://account.xiaomi.com/identity/list"
 USER_QUOTA = "https://account.xiaomi.com/identity/pass/sms/userQuota"
+REGION_URL = "https://account.xiaomi.com/pass/user/login/region"
+REGION_CONFIG = "https://account.xiaomi.com/pass2/config"
 SEND_EMAIL = "https://account.xiaomi.com/identity/auth/sendEmailTicket"
 SEND_PHONE = "https://account.xiaomi.com/identity/auth/sendPhoneTicket"
 VERIFY_EMAIL = "https://account.xiaomi.com/identity/auth/verifyEmail"
@@ -274,6 +276,40 @@ def exchange(sid):
         "cookies": service_cookies,
         "debug": exchange_debug,
     })
+
+
+def apply_session(cookies_json):
+    """Подставляет cookies сохранённой сессии: зону можно уточнить без нового входа."""
+    cookies = json.loads(cookies_json)
+    for key, value in cookies.items():
+        session.cookies.set(key, value)
+    return _reply({"ok": True, "cookies": len(cookies)})
+
+
+def account_zone():
+    """Зона данных аккаунта — по официальному ответу Xiaomi, а не по догадке.
+
+    `region` — страна аккаунта, `zone` — дата-центр (Singapore/China/Russia/
+    India/Europe). Домен unlock.update.* зависит от дата-центра: у российского
+    аккаунта он свой, и запрос в чужой дата-центр сервер отклоняет.
+    """
+    if not session.cookies.get_dict():
+        return _reply({"ok": False, "error": _message("Нет сессии Xiaomi", "No Xiaomi session")})
+    try:
+        region = (_json(session.get(REGION_URL)).get("data") or {}).get("region") or ""
+    except Exception as error:
+        return _reply({"ok": False, "error": "region: {}".format(error)[:120]})
+
+    zone = ""
+    try:
+        config = _json(session.get(REGION_CONFIG, params={"key": "regionConfig"})).get("regionConfig") or {}
+        for name, info in config.items():
+            if region and region in (info.get("region.codes") or []):
+                zone = name
+                break
+    except Exception:
+        zone = ""
+    return _reply({"ok": True, "region": region, "zone": zone})
 
 
 def qr_request(auth_data_json):

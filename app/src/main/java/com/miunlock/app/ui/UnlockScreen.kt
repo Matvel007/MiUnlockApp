@@ -56,6 +56,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.miunlock.app.auth.PythonMiAuth
 import com.miunlock.app.data.DebugLog
 import com.miunlock.app.data.LogLevel
 import com.miunlock.app.data.LogTag
@@ -176,6 +177,26 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
+    /**
+     * Уточняет дата-центр по сохранённой сессии. Нужно, потому что зона
+     * определяет домен unlock.update.*: аккаунт из одной зоны не узнаётся
+     * сервером другой. Входить заново ради этого не требуется.
+     */
+    private suspend fun refreshZone(session: UnlockSession): UnlockSession {
+        if (session.cookies.isEmpty()) return session
+        val auth = PythonMiAuth(getApplication())
+        auth.applySession(session.cookies)
+        val account = auth.accountZone()
+        if (account.zone.isBlank() || account.zone == session.zone) return session
+        DebugLog.add(
+            t("Разблокировка: зона уточнена — ", "Unlock: zone resolved — ") +
+                "${session.zone} → ${account.zone} (регион ${account.region})",
+        )
+        val updated = session.copy(zone = account.zone)
+        store.saveSession(updated)
+        return updated
+    }
+
     fun logout() {
         viewModelScope.launch {
             store.clearSession()
@@ -290,11 +311,15 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         DebugLog.add(t("Разблокировка: старт", "Unlock: started"))
 
         viewModelScope.launch {
+            // Зону уточняем до старта: от неё зависит домен unlock.update.*,
+            // и при неверной зоне сервер отвечает 401 на первый же запрос.
+            val session = runCatching { refreshZone(state.session) }.getOrDefault(state.session)
+            if (session !== state.session) state = state.copy(session = session)
             val workflow = UnlockWorkflow(usb, UnlockApi(state.proxy))
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
                     workflow.run(
-                        session = state.session,
+                        session = session,
                         device = dev,
                         listener = { p ->
                             viewModelScope.launch {

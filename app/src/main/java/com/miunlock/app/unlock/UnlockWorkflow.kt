@@ -211,8 +211,10 @@ class UnlockWorkflow(
             LogTag.AUTH,
             "сессия: ssecurity ${session.ssecurity.length} симв., uid ${session.userId.length} симв., " +
                 "deviceId ${session.deviceId.length} симв., cookies ${session.cookies.size}, " +
-                "token ${session.serviceToken.length} симв.",
+                "token ${session.serviceToken.length} симв., зона ${session.zone}",
         )
+        // Имена cookie без значений: по ним видно, чего сервер не выдал.
+        DebugLog.trace(LogTag.AUTH, "cookies сессии: ${session.cookies.keys.sorted().joinToString()}")
         usb.open(device).getOrElse {
             return UnlockOutcome.Failure(UnlockStep.DEVICE, it.message ?: "не удалось открыть устройство")
         }
@@ -240,9 +242,11 @@ class UnlockWorkflow(
             val nonce1 = try {
                 api.nonce(domain, session.ssecurity, session.cookies)
             } catch (error: Throwable) {
-                // 401 здесь означает не «нет сети», а «сессия не того сервиса».
+                // 401 — сервер не принял сессию. Чаще всего дело в дата-центре:
+                // аккаунт живёт в другой зоне, и чужой домен его не узнаёт.
                 val hint = if (error.message?.contains("401") == true) {
-                    "сервер не принял сессию — войдите в Mi Account заново"
+                    "сервер отклонил сессию (зона ${session.zone}) — проверьте зону сервера " +
+                        "в настройках разблокировки или войдите в Mi Account заново"
                 } else {
                     error.message ?: "запрос не прошёл"
                 }
