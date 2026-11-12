@@ -225,8 +225,17 @@ class MiLoginActivity : ComponentActivity() {
             return
         }
         codeSent = true
-        val channel = if (method == "PH") t("по SMS", "by SMS") else t("на email", "by email")
-        status = t("Код отправлен $channel. Введите его в поле под паролем и нажмите «Проверить код».", "Code sent $channel. Enter it below the password and tap Verify code.")
+        status = if (method == "PH") {
+            t(
+                "Код отправлен по SMS. Если SMS не пришла — Xiaomi может позвонить и продиктовать код голосом, проверьте блокировщик звонков. Введите код в поле под паролем и нажмите «Проверить код».",
+                "Code sent by SMS. If no SMS arrives, Xiaomi may call and read the code aloud — check your call blocker. Enter the code below the password and tap Verify code.",
+            )
+        } else {
+            t(
+                "Код отправлен на email. Введите его в поле под паролем и нажмите «Проверить код».",
+                "Code sent by email. Enter it below the password and tap Verify code.",
+            )
+        }
     }
 
     /**
