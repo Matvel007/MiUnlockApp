@@ -109,13 +109,24 @@ def send_code(method):
     if not verification_context:
         return _reply({"ok": False, "error": _message("Сессия подтверждения истекла", "Verification session expired")})
     quota = _json(session.post(USER_QUOTA, data={"addressType": method, "contentType": "160040", "_json": "true"}))
-    if int(quota.get("info") or 0) <= 0:
-        return _reply({"ok": False, "error": _message("Лимит отправки кодов Xiaomi исчерпан", "Xiaomi verification-code limit reached")})
+    # Проверка квоты — подсказка, а не приговор. Если сервер ответил не числом
+    # (например, 10001 «системная ошибка»), это не значит, что лимит исчерпан:
+    # настоящий ответ даст сама отправка кода ниже.
+    info = quota.get("info")
+    if info is not None and int(info) <= 0:
+        return _reply({
+            "ok": False,
+            "error": _message("Лимит отправки кодов Xiaomi исчерпан", "Xiaomi verification-code limit reached"),
+        })
     endpoint = SEND_PHONE if method == "PH" else SEND_EMAIL
     result = _json(session.post(endpoint))
     if result.get("code") != 0:
-        return _reply({"ok": False, "error": result.get("tips") or result.get("desc") or f"Код Xiaomi {result.get('code')}"})
-    return _reply({"ok": True})
+        return _reply({
+            "ok": False,
+            "error": result.get("tips") or result.get("desc") or f"Код Xiaomi {result.get('code')}",
+            "quota": quota,
+        })
+    return _reply({"ok": True, "quota": quota})
 
 
 def verify_code(method, code, sid):

@@ -34,10 +34,13 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -46,7 +49,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.lifecycleScope
@@ -54,6 +59,7 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.miunlock.app.MiUnlockApp
+import com.miunlock.app.R
 import com.miunlock.app.data.DebugLog
 import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.Credentials
@@ -427,7 +433,37 @@ private fun LoginScreen(
                     Spacer(Modifier.height(12.dp))
                     OutlinedTextField(account, onAccountChange, label = { Text(if (language == "en") "Xiaomi ID / email / phone" else "Xiaomi ID / email / телефон") }, singleLine = true, enabled = !working, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
                     Spacer(Modifier.height(8.dp))
-                    OutlinedTextField(password, onPasswordChange, label = { Text(if (language == "en") "Password" else "Пароль") }, singleLine = true, enabled = !working, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))
+                    // Глазик: показать пароль, пока человек его набирает и сверяет.
+                    var showPassword by rememberSaveable { mutableStateOf(false) }
+                    OutlinedTextField(
+                        password,
+                        onPasswordChange,
+                        label = { Text(if (language == "en") "Password" else "Пароль") },
+                        singleLine = true,
+                        enabled = !working,
+                        visualTransformation = if (showPassword) {
+                            VisualTransformation.None
+                        } else {
+                            PasswordVisualTransformation()
+                        },
+                        trailingIcon = {
+                            IconButton(onClick = { showPassword = !showPassword }) {
+                                Icon(
+                                    painterResource(
+                                        if (showPassword) R.drawable.ic_eye_off else R.drawable.ic_eye,
+                                    ),
+                                    contentDescription = if (language == "en") {
+                                        if (showPassword) "Hide password" else "Show password"
+                                    } else {
+                                        if (showPassword) "Скрыть пароль" else "Показать пароль"
+                                    },
+                                    tint = MaterialTheme.colorScheme.secondary,
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(14.dp),
+                    )
                     if (codeSent) {
                         Spacer(Modifier.height(8.dp))
                         OutlinedTextField(code, onCodeChange, label = { Text(if (language == "en") "Verification code" else "Код подтверждения") }, singleLine = true, enabled = !working, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp))

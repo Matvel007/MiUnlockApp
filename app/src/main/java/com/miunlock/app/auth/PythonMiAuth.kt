@@ -87,6 +87,11 @@ class PythonMiAuth(context: Context) {
 
     suspend fun sendCode(method: String) {
         val result = call("send_code", method)
+        // Ответ проверки квоты пишем в лог целиком: без него не понять,
+        // это настоящий лимит или сервер ответил ошибкой, а мы приняли её за ноль.
+        if (result.has("quota")) {
+            DebugLog.add(LogLevel.INFO, LogTag.AUTH, "квота $method: ${result.getJSONObject("quota")}")
+        }
         requireOk(result)
     }
 
