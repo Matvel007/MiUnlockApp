@@ -109,6 +109,20 @@ class FastbootCodecTest {
     }
 
     @Test
+    fun `токен в base64url с подчёркиванием принимается`() {
+        // Реальный ответ Xiaomi 2201122G (dada) на getvar:token: символ `_`
+        // в base64url раньше не проходил проверку, и токен терялся.
+        val payload = "VQEBIgEQD_zAEg4MkusFZBGwVMbe_AMEZGFkYQIIAAAEWgwmsRg"
+        assertEquals(payload, FastbootCodec.parseToken(payload, emptyList()))
+        assertTrue(FastbootCodec.looksLikeToken(payload))
+    }
+
+    @Test
+    fun `токен в base64url с дефисом принимается`() {
+        assertTrue(FastbootCodec.looksLikeToken("AbC-dEf_1234567890XYZ"))
+    }
+
+    @Test
     fun `сообщение об ошибке не принимается за токен`() {
         // FAILunknown command содержит пробел — это не токен.
         assertEquals("", FastbootCodec.parseToken("unknown command", emptyList()))

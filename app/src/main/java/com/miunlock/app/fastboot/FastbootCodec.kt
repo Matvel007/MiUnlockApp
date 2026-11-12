@@ -102,10 +102,14 @@ object FastbootCodec {
         return if (looksLikeToken(clean)) clean else ""
     }
 
-    /** Токен — base64 или hex без пробелов и знаков препинания. */
+    /**
+     * Токен — base64 или hex без пробелов и знаков препинания.
+     * Xiaomi отдаёт его в base64url: кроме обычных символов встречаются
+     * `-` и `_`, поэтому их тоже принимаем (например, `…Mbe_AMEZGFk…`).
+     */
     fun looksLikeToken(value: String): Boolean =
         value.length in 16..512 &&
-            value.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
+            value.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' || it == '-' || it == '_' }
 
     /**
      * Codename из ответа `getvar:product`. Приходит либо в payload
