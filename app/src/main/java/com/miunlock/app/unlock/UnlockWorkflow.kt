@@ -311,6 +311,19 @@ class UnlockWorkflow(
                 DebugLog.trace(LogTag.API, "ahaUnlock (повтор): код ${aha.code} ${aha.desc}")
             }
             if (!aha.isOk) {
+                // Тело отказа — единственный источник часов ожидания. Сервер
+                // кладёт туда не только текст: у Xiaomi есть отдельные поля
+                // с остатком срока. Печатаем все ключи, кроме зашифрованных.
+                val fields = aha.json.keys().asSequence()
+                    .filter { it != "encryptData" }
+                    .joinToString(", ") { key ->
+                        val value = aha.json.opt(key)
+                        "$key=${value.toString().take(60)}"
+                    }
+                DebugLog.add(
+                    LogLevel.INFO, LogTag.API,
+                    "ahaUnlock: отказ ${aha.code}, поля ответа: $fields",
+                )
                 return UnlockOutcome.Failure(UnlockStep.AHA, aha.desc, aha.code)
             }
             val encryptData = aha.json.optString("encryptData")

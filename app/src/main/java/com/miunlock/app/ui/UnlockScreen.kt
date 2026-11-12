@@ -128,16 +128,16 @@ internal fun unlockHint(code: Int?): Bilingual? = when (code) {
         "The server treated the request as stale. Tap “Unlock” again.",
     )
     20031 -> Bilingual(
-        "Аккаунт не добавлен в статус разблокировки на самом устройстве. На телефоне: " +
-            "Настройки → О телефоне → 7 раз нажать на версию HyperOS → Настройки → " +
-            "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi → " +
-            "«Добавить аккаунт и устройство». Нужны SIM-карта и интернет. После добавления " +
-            "Xiaomi запускает отсчёт: обычно 168 часов, у части устройств меньше.",
-        "The account is not added to Mi Unlock status on the device itself. On the phone: " +
-            "Settings → About phone → tap the HyperOS version 7 times → Settings → " +
-            "Additional settings → Developer options → Mi Unlock status → " +
-            "“Add account and device”. A SIM card and internet are required. After that " +
-            "Xiaomi starts the waiting period: usually 168 hours, less on some devices.",
+        "Xiaomi не пускает к разблокировке этого устройства. Две причины: либо аккаунт " +
+            "не привязан к нему (Настройки → Дополнительные настройки → Для разработчиков → " +
+            "Статус разблокировки Mi → «Добавить аккаунт и устройство»), либо привязка есть, " +
+            "но отсчёт ещё не закончился — обычно 168 часов. Точный остаток показывает " +
+            "официальная программа Mi Unlock на ПК.",
+        "Xiaomi is not allowing this device to be unlocked. Two causes: either the account " +
+            "is not bound to it (Settings → Additional settings → Developer options → " +
+            "Mi Unlock status → “Add account and device”), or the binding exists but the " +
+            "waiting period has not finished — usually 168 hours. The official Mi Unlock " +
+            "tool on a PC shows the exact remaining time.",
     )
     20032 -> Bilingual(
         "Xiaomi не принял привязку. Проверьте, что на телефоне включён тот же аккаунт, " +
