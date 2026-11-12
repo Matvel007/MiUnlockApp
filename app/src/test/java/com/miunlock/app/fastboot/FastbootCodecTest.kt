@@ -89,22 +89,38 @@ class FastbootCodecTest {
 
     @Test
     fun `токен склеивается из нескольких INFO-строк`() {
-        val merged = FastbootCodec.mergeToken(
-            listOf("token: AAAA", "token: BBBB", "token: CCCC"),
+        val merged = FastbootCodec.parseToken(
             "",
+            listOf("token: AAAA", "token: BBBB", "token: CCCC"),
         )
         assertEquals("AAAABBBBCCCC", merged)
     }
 
     @Test
     fun `токен берётся из payload если INFO-строк нет`() {
-        assertEquals("DEADBEEF", FastbootCodec.mergeToken(emptyList(), "OKAYtoken: DEADBEEF"))
+        assertEquals("DEADBEEF", FastbootCodec.parseToken("OKAYtoken: DEADBEEF", emptyList()))
+    }
+
+    @Test
+    fun `токен без префикса берётся как есть`() {
+        // Реальный ответ Poco F3 на getvar:token (HyperOS): OKAY + base64 без "token:".
+        val payload = "VQEBIAEQ1pIBsb2gbw3jwWH0RwyddgMGYWxpb3RoAgTGQX6l"
+        assertEquals(payload, FastbootCodec.parseToken(payload, emptyList()))
+    }
+
+    @Test
+    fun `сообщение об ошибке не принимается за токен`() {
+        // FAILunknown command содержит пробел — это не токен.
+        assertEquals("", FastbootCodec.parseToken("unknown command", emptyList()))
+        assertEquals("", FastbootCodec.parseToken("GetVar Variable Not found", emptyList()))
     }
 
     @Test
     fun `без токена возвращается пустая строка`() {
-        assertEquals("", FastbootCodec.mergeToken(emptyList(), "OKAY"))
-        assertEquals("", FastbootCodec.mergeToken(listOf("something else"), ""))
+        assertEquals("", FastbootCodec.parseToken("", emptyList()))
+        assertEquals("", FastbootCodec.parseToken("", listOf("something else")))
+        // Слишком короткая строка токеном не считается.
+        assertEquals("", FastbootCodec.parseToken("OKAYabc", emptyList()))
     }
 
     @Test

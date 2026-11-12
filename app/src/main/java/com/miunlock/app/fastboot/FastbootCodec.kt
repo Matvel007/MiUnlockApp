@@ -79,11 +79,12 @@ object FastbootCodec {
     }
 
     /**
-     * Склеивает токен из ответа. Xiaomi отдаёт его разбитым на несколько строк
-     * `INFOtoken: <часть>` — их нужно соединить по порядку, иначе токен битый.
-     * Если строк нет, берём payload (`OKAYtoken: ...`).
+     * Токен из ответа загрузчика. Формы ответа различаются по прошивкам:
+     * `INFOtoken: <часть>` несколькими строками, `OKAYtoken: <токен>`,
+     * либо просто `OKAY<токен>` без префикса — так отвечает HyperOS на
+     * `getvar:token`. Последний случай раньше терялся.
      */
-    fun mergeToken(infoLines: List<String>, payload: String): String {
+    fun parseToken(payload: String, infoLines: List<String>): String {
         // Только строки с явным "token:" — остальные INFO-строки (product, serialno,
         // secure и прочие) к токену отношения не имеют и склеили бы мусор.
         val parts = infoLines.mapNotNull { line ->
@@ -93,8 +94,18 @@ object FastbootCodec {
         if (parts.isNotEmpty()) return parts.joinToString("")
 
         val idx = payload.indexOf("token:", ignoreCase = true)
-        return if (idx >= 0) payload.substring(idx + "token:".length).trim() else ""
+        if (idx >= 0) return payload.substring(idx + "token:".length).trim()
+
+        // Ответ без префикса: payload целиком, но только если он правда похож
+        // на токен. Иначе `FAILunknown command` ушёл бы на сервер как токен.
+        val clean = payload.trim()
+        return if (looksLikeToken(clean)) clean else ""
     }
+
+    /** Токен — base64 или hex без пробелов и знаков препинания. */
+    fun looksLikeToken(value: String): Boolean =
+        value.length in 16..512 &&
+            value.all { it.isLetterOrDigit() || it == '+' || it == '/' || it == '=' }
 
     /**
      * Codename из ответа `getvar:product`. Приходит либо в payload

@@ -44,18 +44,28 @@ class FastbootCommands(private val usb: FastbootUsb) {
     }
 
     /**
-     * Токен устройства. Сначала `oem get_token`, если не вышло — `getvar:token`.
-     * Часть загрузчиков отдаёт `GetVar Variable Not found` до нескольких попыток.
+     * Токен устройства. Сначала `oem get_token`, если команда не поддерживается —
+     * `getvar:token`. HyperOS отвечает на первую `FAILunknown command`, это норма.
      */
-    fun token(attempts: Int = 3): Result<String> {
-        repeat(attempts) {
-            val oem = usb.execute("oem get_token").getOrNull()
-            val fromOem = oem?.let { FastbootCodec.mergeToken(it.infoLines, it.payload) }.orEmpty()
-            if (fromOem.isNotEmpty()) return Result.success(fromOem)
+    fun token(): Result<String> {
+        val oem = usb.execute("oem get_token").getOrNull()
+        if (oem != null) {
+            val fromOem = FastbootCodec.parseToken(oem.payload, oem.infoLines)
+            if (fromOem.isNotEmpty()) {
+                DebugLog.trace(LogTag.FASTBOOT, "токен получен через oem get_token")
+                return Result.success(fromOem)
+            }
+            DebugLog.trace(LogTag.FASTBOOT, "oem get_token не дал токен: ${oem.status} ${oem.payload}")
+        }
 
-            val getvar = usb.execute("getvar:token").getOrNull()
-            val fromGetvar = getvar?.let { FastbootCodec.mergeToken(it.infoLines, it.payload) }.orEmpty()
-            if (fromGetvar.isNotEmpty()) return Result.success(fromGetvar)
+        val getvar = usb.execute("getvar:token").getOrNull()
+        if (getvar != null) {
+            val fromGetvar = FastbootCodec.parseToken(getvar.payload, getvar.infoLines)
+            if (fromGetvar.isNotEmpty()) {
+                DebugLog.trace(LogTag.FASTBOOT, "токен получен через getvar:token, ${fromGetvar.length} символов")
+                return Result.success(fromGetvar)
+            }
+            DebugLog.warn(LogTag.FASTBOOT, "getvar:token не дал токен: ${getvar.status} ${getvar.payload}")
         }
         return Result.failure(IllegalStateException("устройство не отдало токен"))
     }
@@ -104,6 +114,29 @@ class UnlockWorkflow(
         fun onProgress(progress: UnlockProgress)
     }
 
+    /** Код сервера: nonce уже использован другим вызовом. */
+    private companion object {
+        const val CODE_INVALID_NONCE = 10005
+    }
+
+    /** Один вызов ahaUnlock с заданным nonce. */
+    private suspend fun requestAha(
+        domain: String,
+        product: String,
+        token: String,
+        nonce: String,
+        session: UnlockSession,
+    ): UnlockApiResult = api.ahaUnlock(
+        domain = domain,
+        product = product,
+        deviceToken = token,
+        nonce = nonce,
+        ssecurity = session.ssecurity,
+        deviceId = session.deviceId,
+        userId = session.userId,
+        cookies = session.cookies,
+    )
+
     /**
      * @param session авторизованная сессия разблокировки
      * @param device  уже выбранное USB-устройство (разрешение должно быть получено)
@@ -138,6 +171,11 @@ class UnlockWorkflow(
             listener.onProgress(UnlockProgress(UnlockStep.TOKEN, "Токен получен, ${token.length} символов", "Token received, ${token.length} chars"))
 
             val domain = UnlockApi.domainForZone(session.zone)
+            DebugLog.add(
+                LogLevel.INFO,
+                LogTag.API,
+                "зона ${session.zone}, домен $domain",
+            )
 
             step(UnlockStep.NONCE, "Запрашиваю nonce", "Requesting a nonce")
             val nonce1 = api.nonce(domain, session.ssecurity, session.cookies)
@@ -154,7 +192,10 @@ class UnlockWorkflow(
             val clear = api.deviceClear(domain, product, nonce, session.ssecurity, session.cookies)
             DebugLog.trace(LogTag.API, "device/clear: код ${clear.code} ${clear.desc}")
             if (!clear.isOk) {
-                return UnlockOutcome.Failure(UnlockStep.CLEAR, clear.desc, clear.code)
+                // Отказ на этом шаге не приговор: сервер отвечает так и на уже
+                // разблокированном устройстве, и на неподходящей зоне. Идём
+                // дальше — ответ ahaUnlock скажет точнее.
+                DebugLog.warn(LogTag.API, "device/clear отказал: ${clear.code} ${clear.desc}")
             }
             val info = api.parseClear(clear)
             listener.onProgress(UnlockProgress(UnlockStep.CLEAR, info.notice.ifEmpty { "проверка пройдена" }, info.notice.ifEmpty { "check passed" }))
@@ -162,27 +203,22 @@ class UnlockWorkflow(
                 return UnlockOutcome.Cancelled
             }
 
-            // nonce израсходован вызовом device/clear — нужен новый, иначе сервер
-            // ответит 10005 Invalid nonce param.
-            step(UnlockStep.NONCE, "Запрашиваю новый nonce", "Requesting a fresh nonce")
-            val nonce2res = api.nonce(domain, session.ssecurity, session.cookies)
-            if (!nonce2res.isOk) {
-                return UnlockOutcome.Failure(UnlockStep.NONCE, nonce2res.desc, nonce2res.code)
-            }
-            val nonce2 = nonce2res.json.optString("nonce")
-
+            // Проверенный порядок: тот же nonce идёт в ahaUnlock. Если сервер
+            // всё же скажет 10005 (nonce израсходован), берём новый и повторяем
+            // один раз — так покрыты обе реализации.
             step(UnlockStep.AHA, "Запрашиваю подпись у Xiaomi", "Requesting the Xiaomi signature")
-            val aha = api.ahaUnlock(
-                domain = domain,
-                product = product,
-                deviceToken = token,
-                nonce = nonce2,
-                ssecurity = session.ssecurity,
-                deviceId = session.deviceId,
-                userId = session.userId,
-                cookies = session.cookies,
-            )
+            var aha = requestAha(domain, product, token, nonce, session)
             DebugLog.trace(LogTag.API, "ahaUnlock: код ${aha.code} ${aha.desc}")
+            if (!aha.isOk && aha.code == CODE_INVALID_NONCE) {
+                DebugLog.warn(LogTag.API, "ahaUnlock: nonce израсходован, беру новый")
+                val fresh = api.nonce(domain, session.ssecurity, session.cookies)
+                if (!fresh.isOk) {
+                    return UnlockOutcome.Failure(UnlockStep.NONCE, fresh.desc, fresh.code)
+                }
+                val nonce2 = fresh.json.optString("nonce")
+                aha = requestAha(domain, product, token, nonce2, session)
+                DebugLog.trace(LogTag.API, "ahaUnlock (повтор): код ${aha.code} ${aha.desc}")
+            }
             if (!aha.isOk) {
                 return UnlockOutcome.Failure(UnlockStep.AHA, aha.desc, aha.code)
             }
