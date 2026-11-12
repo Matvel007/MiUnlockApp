@@ -4,6 +4,9 @@ import android.content.Context
 import android.util.Base64
 import com.chaquo.python.Python
 import com.chaquo.python.android.AndroidPlatform
+import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogLevel
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.ProxySettings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -88,6 +91,16 @@ class PythonMiAuth(context: Context) {
     /** Полный набор данных сервисной сессии — нужен режиму разблокировки. */
     suspend fun exchangeFull(sid: String): ServiceLogin {
         val result = call("exchange", sid)
+        // Диагностика обмена: какие поля сервис вернул и какие cookies ушли.
+        result.optJSONObject("debug")?.let { d ->
+            DebugLog.add(
+                LogLevel.INFO,
+                LogTag.AUTH,
+                "обмен $sid: код ${d.opt("code")}, nonce ${d.optBoolean("hasNonce")}, " +
+                    "ssecurity ${d.optBoolean("hasSsecurity")}, location ${d.optBoolean("hasLocation")}, " +
+                    "cookies ${d.optJSONArray("cookies")?.length() ?: 0}",
+            )
+        }
         requireOk(result)
         val cookies = result.optJSONObject("cookies")?.let { obj ->
             obj.keys().asSequence().associateWith { obj.optString(it) }

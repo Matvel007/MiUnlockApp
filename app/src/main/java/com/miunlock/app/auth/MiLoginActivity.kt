@@ -223,8 +223,11 @@ class MiLoginActivity : ComponentActivity() {
         }
     }
 
-    /** sid зависит от режима: у разблокировки свой сервис. */
-    private fun currentSid(): String = if (mode == MODE_UNLOCK) SID_UNLOCK else SID_APPLY
+    /**
+     * Вход в аккаунт всегда через Mi Community: пароль и код подтверждения
+     * работают только на нём. Нужный сервис подключается позже, обменом.
+     */
+    private fun currentSid(): String = SID_APPLY
 
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
@@ -378,9 +381,9 @@ class MiLoginActivity : ComponentActivity() {
         private const val SID_APPLY = "18n_bbs_global"
 
         /**
-         * Сервис разблокировки. Xiaomi выдаёт serviceToken и ssecurity
-         * под конкретный сервис: с токеном Mi Community API разблокировки
-         * отвечает 401. Поэтому у режима разблокировки свой sid.
+         * Сервис разблокировки. Вход всегда идёт через [SID_APPLY]: этот путь
+         * с паролем и кодом проверен. Токен под разблокировку выдается отдельно,
+         * обменом passToken на сервисную сессию (см. finishUnlockLogin).
          */
         private const val SID_UNLOCK = "unlockApi"
 

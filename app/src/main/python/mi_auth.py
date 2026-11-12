@@ -138,9 +138,20 @@ def exchange(sid):
     for key, value in cookies.items():
         service.cookies.set(key, value)
     first = _json(service.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
+    # Код ответа и наличие service data: по ним видно, принят ли passToken
+    # этим сервисом. Без этого отказ выглядит одинаково для всех причин.
+    exchange_debug = {
+        "code": first.get("code"),
+        "hasNonce": bool(first.get("nonce")),
+        "hasSsecurity": bool(first.get("ssecurity")),
+        "hasLocation": bool(first.get("location")),
+        "cookies": sorted(cookies.keys()),
+    }
     nonce, ssecurity, location = first.get("nonce"), first.get("ssecurity"), first.get("location")
     if not nonce or not ssecurity or not location:
-        return _reply({"ok": False, "error": _message(f"Сервис {sid} не выдал данные входа (код {first.get('code')})", f"Service {sid} did not provide sign-in data (code {first.get('code')})")})
+        return _reply({"ok": False, "debug": exchange_debug, "error": _message(
+            f"Сервис {sid} не выдал данные входа (код {first.get('code')})",
+            f"Service {sid} did not provide sign-in data (code {first.get('code')})")})
     sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
     response = service.get(f"{location}&clientSign={sign}")
     # Имя cookie с токеном зависит от сервиса: у Mi Community это
@@ -157,7 +168,7 @@ def exchange(sid):
     # Для unlock.update.* нужны cookies и ssecurity: ими подписывается каждый
     # запрос. Токен — только признак входа, в подписи он не участвует.
     if not service_cookies:
-        return _reply({"ok": False, "error": _message(
+        return _reply({"ok": False, "debug": exchange_debug, "error": _message(
             f"Сервис {sid} не выдал cookies (код {first.get('code')})",
             f"Service {sid} did not return cookies (code {first.get('code')})")})
     return _reply({
@@ -167,6 +178,7 @@ def exchange(sid):
         "userId": required["userId"],
         "ssecurity": ssecurity,
         "cookies": service_cookies,
+        "debug": exchange_debug,
     })
 
 
