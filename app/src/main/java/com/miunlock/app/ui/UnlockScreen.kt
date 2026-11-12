@@ -170,6 +170,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Ищет подключённые устройства в fastboot и запрашивает доступ. */
     fun scanDevice() {
+        // Полный список USB — в журнал: по нему видно, в каком режиме целевой телефон.
+        DebugLog.add(adb.allDevicesDiagnostics())
         val found = usb.candidates()
         if (found.isEmpty()) {
             state = state.copy(
@@ -219,12 +221,13 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                     )
                 } else {
                     Bilingual(
-                        "Телефон не найден. Включите «Отладку по USB» или переведите в fastboot кнопками",
-                        "Phone not found. Enable “USB debugging” or enter fastboot with the buttons",
+                        "Телефон не найден по ADB. Включите «Отладку по USB» и на самом телефоне выберите режим USB «Передача файлов» (не «Только зарядка»). Либо переведите в fastboot кнопками.",
+                        "Phone not found over ADB. Enable “USB debugging” and set the target phone’s USB mode to “File transfer” (not “Charging only”). Or enter fastboot with the buttons.",
                     )
                 },
             )
             DebugLog.add(t("Разблокировка: нет устройства с отладкой", "Unlock: no device with USB debugging"))
+            DebugLog.add(adb.allDevicesDiagnostics())
             return
         }
         val device = found.first()
@@ -234,6 +237,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             status = Bilingual("Готовлю переход в fastboot…", "Preparing to boot into fastboot…"),
         )
         viewModelScope.launch {
+            DebugLog.add(adb.diagnostics(device))
             val granted = awaitPermission(device)
             if (!granted) {
                 state = state.copy(

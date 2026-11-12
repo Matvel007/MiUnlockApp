@@ -32,6 +32,8 @@ class AdbClient(
 
         /** Обычный ответ телефона приходит быстро. */
         private const val TIMEOUT_MS = 8_000
+        /** Первый ответ adbd: телефон может думать дольше. */
+        private const val FIRST_TIMEOUT_MS = 15_000
         /** После отправки ключа телефон показывает диалог: человек должен успеть нажать. */
         private const val AUTH_TIMEOUT_MS = 60_000
         private const val BUFFER = 4096
@@ -54,17 +56,43 @@ class AdbClient(
         return map.values.filter { hasAdbInterface(it) }
     }
 
+    /**
+     * Признак интерфейса отладки. Протокол проверяем мягко: у части прошивок
+     * он приходит как 0x00, и строгая проверка на 0x01 отбрасывала живой ADB.
+     */
     fun hasAdbInterface(dev: UsbDevice): Boolean {
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
-            if (intf.interfaceClass == CLASS &&
-                intf.interfaceSubclass == SUBCLASS &&
-                intf.interfaceProtocol == PROTOCOL_ADB
-            ) {
-                return true
-            }
+            if (intf.interfaceClass == CLASS && intf.interfaceSubclass == SUBCLASS) return true
         }
         return false
+    }
+
+    /** Все подключённые устройства с их интерфейсами — для журнала, когда ADB не нашёлся. */
+    fun allDevicesDiagnostics(): String {
+        val list = usb.deviceList?.values.orEmpty()
+        if (list.isEmpty()) return "USB: устройств не видно вообще"
+        return list.joinToString(" || ") { diagnostics(it) }
+    }
+
+    /** Подробности USB для журнала: без них не понять, куда мы вообще пишем. */
+    fun diagnostics(dev: UsbDevice): String = buildString {
+        append("USB ${dev.deviceName} VID=%04X PID=%04X".format(dev.vendorId, dev.productId))
+        append(" интерфейсов=").append(dev.interfaceCount)
+        for (i in 0 until dev.interfaceCount) {
+            val intf = dev.getInterface(i)
+            append(" | #").append(i)
+            append(" class=%02X sub=%02X proto=%02X".format(
+                intf.interfaceClass, intf.interfaceSubclass, intf.interfaceProtocol,
+            ))
+            append(" ep=").append(intf.endpointCount)
+            for (e in 0 until intf.endpointCount) {
+                val ep = intf.getEndpoint(e)
+                append("[").append("%02X".format(ep.address))
+                append(if (ep.direction == UsbConstants.USB_DIR_IN) " IN" else " OUT")
+                append(" ").append(ep.type).append(" ").append(ep.maxPacketSize).append("b]")
+            }
+        }
     }
 
     fun hasPermission(dev: UsbDevice): Boolean = usb.hasPermission(dev)
@@ -102,9 +130,12 @@ class AdbClient(
 
     fun open(dev: UsbDevice): Result<Unit> {
         close()
-        for (i in 0 until dev.interfaceCount) {
-            val intf = dev.getInterface(i)
-            if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
+        log(diagnostics(dev))
+        // Сначала интерфейс с протоколом ADB, иначе любой 0xFF/0x42.
+        val order = (0 until dev.interfaceCount).map { dev.getInterface(it) }
+            .filter { it.interfaceClass == CLASS && it.interfaceSubclass == SUBCLASS }
+            .sortedByDescending { it.interfaceProtocol == PROTOCOL_ADB }
+        for (intf in order) {
             var input: UsbEndpoint? = null
             var output: UsbEndpoint? = null
             for (e in 0 until intf.endpointCount) {
@@ -112,20 +143,37 @@ class AdbClient(
                 if (ep.type != UsbConstants.USB_ENDPOINT_XFER_BULK) continue
                 if (ep.direction == UsbConstants.USB_DIR_IN) input = ep else output = ep
             }
-            if (input == null || output == null) continue
-            val conn = usb.openDevice(dev) ?: return Result.failure(IllegalStateException("не удалось открыть устройство"))
+            if (input == null || output == null) {
+                log("USB интерфейс без пары bulk-эндпоинтов, пропускаю")
+                continue
+            }
+            val conn = usb.openDevice(dev)
+                ?: return Result.failure(IllegalStateException("не удалось открыть устройство"))
             if (!conn.claimInterface(intf, true)) {
                 conn.close()
                 return Result.failure(IllegalStateException("интерфейс занят другим приложением"))
             }
+            conn.setInterface(intf)
+            // После claim на эндпоинтах может висеть halt от прошлого хозяина:
+            // тогда запись уходит в никуда, а чтение сразу отдаёт ошибку.
+            clearHalt(conn, input)
+            clearHalt(conn, output)
             connection = conn
             iface = intf
             epIn = input
             epOut = output
             device = dev
+            log("USB открыт: IN=%02X OUT=%02X".format(input.address, output.address))
             return Result.success(Unit)
         }
         return Result.failure(IllegalStateException("не найден интерфейс отладки"))
+    }
+
+    /** CLEAR_FEATURE(ENDPOINT_HALT) — стандартный способ снять залипший эндпоинт. */
+    private fun clearHalt(conn: UsbDeviceConnection, ep: UsbEndpoint) {
+        runCatching {
+            conn.controlTransfer(0x02, 0x01, 0, ep.address, null, 0, 1_000)
+        }
     }
 
     fun close() {
@@ -156,35 +204,63 @@ class AdbClient(
         val publicKey = pair.public as RSAPublicKey
 
         framer.reset()
-        send(AdbPacket.encode(AdbPacket.CNXN, AdbPacket.VERSION, AdbPacket.MAX_DATA, AdbPacket.payload("host::")))
-            .getOrElse { return Result.failure(it) }
-        log("ADB → CNXN host::")
+        // Первый пакет от adbd может не прийти: он иногда принимает соединение
+        // не с первого раза. Повторяем CNXN, прежде чем объявить провал.
+        var packet: AdbPacket? = null
+        var attempt = 0
+        while (packet == null) {
+            attempt++
+            send(AdbPacket.encode(AdbPacket.CNXN, AdbPacket.VERSION, AdbPacket.MAX_DATA, AdbPacket.payload("host::")))
+                .getOrElse { return Result.failure(it) }
+            log("ADB → CNXN host:: (попытка $attempt)")
+            val result = readPacket(FIRST_TIMEOUT_MS)
+            if (result.isSuccess) {
+                packet = result.getOrNull()
+                break
+            }
+            if (attempt >= 3) {
+                val hint = device?.let { diagnostics(it) } ?: ""
+                return Result.failure(
+                    IllegalStateException(
+                        "телефон не отвечает на ADB. ${result.exceptionOrNull()?.message ?: ""}. $hint",
+                    ),
+                )
+            }
+            framer.reset()
+            kotlinx.coroutines.delay(1_200)
+        }
 
         var signatureSent = false
         var keySent = false
         repeat(8) {
-            val packet = readPacket(if (keySent) AUTH_TIMEOUT_MS else TIMEOUT_MS).getOrElse { error ->
-                return Result.failure(
-                    IllegalStateException(
-                        if (keySent) {
-                            "телефон не подтвердил отладку. Разрешите доступ на его экране и повторите"
-                        } else {
-                            "телефон не отвечает: ${error.message}"
-                        },
-                    ),
-                )
+            val current = packet
+            if (current == null) {
+                val next = readPacket(if (keySent) AUTH_TIMEOUT_MS else TIMEOUT_MS).getOrElse { error ->
+                    return Result.failure(
+                        IllegalStateException(
+                            if (keySent) {
+                                "телефон не подтвердил отладку. Разрешите доступ на его экране и повторите"
+                            } else {
+                                "телефон не отвечает: ${error.message}"
+                            },
+                        ),
+                    )
+                }
+                packet = next
             }
-            log("ADB ← ${name(packet.command)} arg0=${packet.arg0} data=${packet.data.size}b")
-            when (packet.command) {
+            val p = packet ?: return Result.failure(IllegalStateException("нет пакета ADB"))
+            packet = null
+            log("ADB ← ${name(p.command)} arg0=${p.arg0} data=${p.data.size}b")
+            when (p.command) {
                 AdbPacket.CNXN -> return Result.success(Unit)
                 AdbPacket.CLSE -> return Result.failure(
                     IllegalStateException("телефон закрыл соединение — разрешите отладку на его экране"),
                 )
-                AdbPacket.AUTH -> when (packet.arg0) {
+                AdbPacket.AUTH -> when (p.arg0) {
                     // Новый токен: сначала пробуем подпись, потом отдаём ключ.
                     AdbPacket.AUTH_TOKEN -> {
                         if (!signatureSent) {
-                            val signature = keys.signToken(packet.data, privateKey)
+                            val signature = keys.signToken(p.data, privateKey)
                             send(AdbPacket.encode(AdbPacket.AUTH, AdbPacket.AUTH_SIGNATURE, 0, signature))
                                 .getOrElse { return Result.failure(it) }
                             signatureSent = true
@@ -257,7 +333,7 @@ class AdbClient(
         val deadline = System.currentTimeMillis() + timeoutMs
         while (System.currentTimeMillis() < deadline) {
             val read = conn.bulkTransfer(input, chunk, chunk.size, TIMEOUT_MS)
-            if (read < 0) return Result.failure(IllegalStateException("телефон не ответил"))
+            if (read < 0) return Result.failure(IllegalStateException("ошибка чтения USB ($read)"))
             if (read == 0) continue
             framer.feed(chunk, read)
             framer.next()?.let { return Result.success(it) }
