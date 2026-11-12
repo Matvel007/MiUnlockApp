@@ -169,7 +169,7 @@ class MiLoginActivity : ComponentActivity() {
                 // В режиме разблокировки сессия заявки неприкосновенна: неудачный
                 // вход сюда не должен выкидывать человека из первого режима.
                 if (mode != MODE_UNLOCK) clearSavedCredentials()
-                val result = auth.login(account, password, SID, language)
+                val result = auth.login(account, password, currentSid(), language)
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
                     val method = result.verificationMethods.firstOrNull { it == "EM" }
@@ -205,7 +205,7 @@ class MiLoginActivity : ComponentActivity() {
             try {
                 working = true
                 status = t("Подтверждаю код Xiaomi...", "Verifying Xiaomi code...")
-                val result = auth.verifyCode(method, verificationCode, SID)
+                val result = auth.verifyCode(method, verificationCode, currentSid())
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
                     codeSent = false
@@ -223,13 +223,16 @@ class MiLoginActivity : ComponentActivity() {
         }
     }
 
+    /** sid зависит от режима: у разблокировки свой сервис. */
+    private fun currentSid(): String = if (mode == MODE_UNLOCK) SID_UNLOCK else SID_APPLY
+
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
         if (mode == MODE_UNLOCK) {
             finishUnlockLogin()
             return
         }
-        val (token, deviceId) = auth.exchange(SID)
+        val (token, deviceId) = auth.exchange(SID_APPLY)
         DebugLog.add("Mi Community session exchanged")
         val store = (application as MiUnlockApp).container.settingsStore
         val current = store.current()
@@ -251,7 +254,7 @@ class MiLoginActivity : ComponentActivity() {
      * и не трогает сессию заявки.
      */
     private suspend fun finishUnlockLogin() {
-        val login = auth.exchangeFull(SID)
+        val login = auth.exchangeFull(SID_UNLOCK)
         if (login.ssecurity.isBlank() || login.userId.isBlank()) {
             error(t("Сервер не выдал ssecurity", "Server did not provide ssecurity"))
         }
@@ -264,6 +267,7 @@ class MiLoginActivity : ComponentActivity() {
                 userId = login.userId,
                 deviceId = login.deviceId,
                 cookies = login.cookies,
+                sid = SID_UNLOCK,
             ),
         )
         DebugLog.add("Разблокировка: сессия Mi Account получена")
@@ -370,7 +374,16 @@ class MiLoginActivity : ComponentActivity() {
         const val MODE_APPLY = "apply"
         const val MODE_UNLOCK = "unlock"
 
-        private const val SID = "18n_bbs_global"
+        /** Mi Community — нужен только режиму подачи заявки. */
+        private const val SID_APPLY = "18n_bbs_global"
+
+        /**
+         * Сервис разблокировки. Xiaomi выдаёт serviceToken и ssecurity
+         * под конкретный сервис: с токеном Mi Community API разблокировки
+         * отвечает 401. Поэтому у режима разблокировки свой sid.
+         */
+        private const val SID_UNLOCK = "unlockApi"
+
         private const val QR_SID = "passport"
     }
 }

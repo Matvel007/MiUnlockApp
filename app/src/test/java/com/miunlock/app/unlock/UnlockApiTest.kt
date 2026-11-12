@@ -60,11 +60,20 @@ class UnlockApiTest {
     }
 
     @Test
-    fun `сессия считается валидной только при токене ssecurity и userId`() {
-        val full = UnlockSession(serviceToken = "t", ssecurity = "s", userId = "1")
+    fun `сессия валидна по ключу, пользователю, cookies и сервису`() {
+        val full = UnlockSession(
+            ssecurity = "s",
+            userId = "1",
+            cookies = mapOf("cUserId" to "x"),
+            sid = "unlockApi",
+        )
         assertTrue(full.isValid)
-        assertFalse(UnlockSession(serviceToken = "t", ssecurity = "", userId = "1").isValid)
-        assertFalse(UnlockSession(serviceToken = "t", ssecurity = "s", userId = "").isValid)
+        // Без ключа подписывать запросы нечем.
+        assertFalse(full.copy(ssecurity = "").isValid)
+        assertFalse(full.copy(userId = "").isValid)
+        assertFalse(full.copy(cookies = emptyMap()).isValid)
+        // Сессия без записи о сервисе — от старой версии, требует повторного входа.
+        assertFalse(full.copy(sid = "").isValid)
         assertFalse(UnlockSession().isValid)
     }
 

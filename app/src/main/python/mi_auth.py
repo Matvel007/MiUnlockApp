@@ -133,26 +133,40 @@ def exchange(sid):
         return _reply({"ok": False, "error": _message("Xiaomi не выдал passToken, userId или deviceId", "Xiaomi did not provide passToken, userId or deviceId")})
     service = requests.Session()
     service.headers.update(session.headers)
-    for key, value in required.items():
+    # Переносим все cookies аккаунта, а не только три: разным сервисам нужны
+    # разные (cUserId, iu и прочие), и без них serviceLogin не узнаёт сессию.
+    for key, value in cookies.items():
         service.cookies.set(key, value)
     first = _json(service.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
     nonce, ssecurity, location = first.get("nonce"), first.get("ssecurity"), first.get("location")
     if not nonce or not ssecurity or not location:
-        return _reply({"ok": False, "error": _message(f"Mi Community serviceLogin не выдал service data (код {first.get('code')})", f"Mi Community serviceLogin did not provide service data (code {first.get('code')})")})
+        return _reply({"ok": False, "error": _message(f"Сервис {sid} не выдал данные входа (код {first.get('code')})", f"Service {sid} did not provide sign-in data (code {first.get('code')})")})
     sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
     response = service.get(f"{location}&clientSign={sign}")
-    token = response.cookies.get("new_bbs_serviceToken")
-    if not token:
-        return _reply({"ok": False, "error": _message("Mi Community не выдал new_bbs_serviceToken", "Mi Community did not provide new_bbs_serviceToken")})
-    # Для режима разблокировки нужны ещё ssecurity, userId и cookies сервисной
-    # сессии: unlock.update.* подписывает каждый запрос ключом из ssecurity.
+    # Имя cookie с токеном зависит от сервиса: у Mi Community это
+    # new_bbs_serviceToken, у unlockApi — своё. Ищем по суффиксу, а не по
+    # конкретному имени, иначе любой другой sid ломает вход.
+    # Берём весь jar сессии: за цепочкой редиректов cookies приходят с разных
+    # хостов, и только в jar они собраны вместе.
+    service_cookies = service.cookies.get_dict()
+    token = ""
+    for key in sorted(service_cookies):
+        if key.lower().endswith("servicetoken"):
+            token = service_cookies[key]
+            break
+    # Для unlock.update.* нужны cookies и ssecurity: ими подписывается каждый
+    # запрос. Токен — только признак входа, в подписи он не участвует.
+    if not service_cookies:
+        return _reply({"ok": False, "error": _message(
+            f"Сервис {sid} не выдал cookies (код {first.get('code')})",
+            f"Service {sid} did not return cookies (code {first.get('code')})")})
     return _reply({
         "ok": True,
         "token": token,
         "deviceId": required["deviceId"],
         "userId": required["userId"],
         "ssecurity": ssecurity,
-        "cookies": service.cookies.get_dict(),
+        "cookies": service_cookies,
     })
 
 

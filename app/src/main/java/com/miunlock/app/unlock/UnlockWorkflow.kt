@@ -189,7 +189,17 @@ class UnlockWorkflow(
             )
 
             step(UnlockStep.NONCE, "Запрашиваю nonce", "Requesting a nonce")
-            val nonce1 = api.nonce(domain, session.ssecurity, session.cookies)
+            val nonce1 = try {
+                api.nonce(domain, session.ssecurity, session.cookies)
+            } catch (error: Throwable) {
+                // 401 здесь означает не «нет сети», а «сессия не того сервиса».
+                val hint = if (error.message?.contains("401") == true) {
+                    "сервер не принял сессию — войдите в Mi Account заново"
+                } else {
+                    error.message ?: "запрос не прошёл"
+                }
+                return UnlockOutcome.Failure(UnlockStep.NONCE, hint)
+            }
             DebugLog.trace(LogTag.API, "nonce: код ${nonce1.code} ${nonce1.desc}")
             if (!nonce1.isOk) {
                 return UnlockOutcome.Failure(UnlockStep.NONCE, nonce1.desc, nonce1.code)

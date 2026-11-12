@@ -17,9 +17,18 @@ data class UnlockSession(
     val deviceId: String = "",
     val cookies: Map<String, String> = emptyMap(),
     val zone: String = UnlockApi.ZONE_SINGAPORE,
+    /** Сервис, под который выдан токен. Пусто у старых сессий — они не годятся. */
+    val sid: String = "",
 ) {
+    /**
+     * Признак рабочей сессии. Токен сервиса нужен не всем режимам: запросы
+     * к unlock.update.* подписываются ключом `ssecurity`, а токен Xiaomi
+     * выдаёт под своим именем для каждого сервиса. Поэтому решают ключ,
+     * пользователь и cookies.
+     */
     val isValid: Boolean
-        get() = serviceToken.isNotBlank() && ssecurity.isNotBlank() && userId.isNotBlank()
+        get() = ssecurity.isNotBlank() && userId.isNotBlank() &&
+            cookies.isNotEmpty() && sid.isNotBlank()
 
     /** Строка cookie для заголовка запроса. */
     fun cookieHeader(): String = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
@@ -40,6 +49,7 @@ class UnlockStore(private val context: Context) {
         val deviceId = stringPreferencesKey("unlock_device_id")
         val cookies = stringPreferencesKey("unlock_cookies")
         val zone = stringPreferencesKey("unlock_zone")
+        val sid = stringPreferencesKey("unlock_sid")
         val proxyType = stringPreferencesKey("unlock_proxy_type")
         val proxyHost = stringPreferencesKey("unlock_proxy_host")
         val proxyPort = stringPreferencesKey("unlock_proxy_port")
@@ -56,6 +66,7 @@ class UnlockStore(private val context: Context) {
             deviceId = p[Keys.deviceId].orEmpty(),
             cookies = decodeCookies(p[Keys.cookies].orEmpty()),
             zone = p[Keys.zone] ?: UnlockApi.ZONE_SINGAPORE,
+            sid = p[Keys.sid].orEmpty(),
         )
     }
 
@@ -67,6 +78,7 @@ class UnlockStore(private val context: Context) {
             p[Keys.deviceId] = session.deviceId
             p[Keys.cookies] = encodeCookies(session.cookies)
             p[Keys.zone] = session.zone
+            p[Keys.sid] = session.sid
         }
     }
 
@@ -77,6 +89,7 @@ class UnlockStore(private val context: Context) {
             p.remove(Keys.userId)
             p.remove(Keys.deviceId)
             p.remove(Keys.cookies)
+            p.remove(Keys.sid)
         }
     }
 
