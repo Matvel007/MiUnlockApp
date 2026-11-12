@@ -16,5 +16,3 @@ local.properties
 *.md
 !README.md
 !README_RU.md
-!CHANGELOG.md
-!PROJECT_REPORT.md
