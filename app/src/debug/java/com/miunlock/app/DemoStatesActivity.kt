@@ -1,6 +1,8 @@
 package com.miunlock.app
 
 import android.os.Bundle
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -45,6 +47,24 @@ class DemoStatesActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Режим проверки подписки на сессию: пишем сессию в настоящее хранилище
+        // и закрываемся. Экран разблокировки должен обновиться сам, без перезахода.
+        if (intent.getBooleanExtra("writeSession", false)) {
+            kotlinx.coroutines.MainScope().launch {
+                com.miunlock.app.unlock.UnlockStore(this@DemoStatesActivity).saveSession(
+                    UnlockSession(
+                        serviceToken = "debug-token",
+                        ssecurity = "c2Vzc2VjdXJpdHkxMjM0NTY=",
+                        userId = "9876543210",
+                        deviceId = "wb_debug",
+                        cookies = mapOf("cUserId" to "9876543210"),
+                        sid = "unlockApi",
+                    ),
+                )
+                finish()
+            }
+            return
+        }
         setContent {
             // Номер состояния можно задать при запуске: adb ... --ei state 6
             var index by remember { mutableStateOf(intent.getIntExtra("state", 0).coerceIn(0, demos().size - 1)) }

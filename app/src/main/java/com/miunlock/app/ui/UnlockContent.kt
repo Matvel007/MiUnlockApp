@@ -118,11 +118,7 @@ internal fun UnlockScreenContent(
                     }
                 }
                 item {
-                    AccountStateCard(
-                        session = state.session,
-                        onLogin = onLogin,
-                        onLogout = onLogout,
-                    )
+                    AccountStateCard(session = state.session, onLogin = onLogin)
                 }
                 item {
                     DeviceCard(
@@ -170,11 +166,7 @@ internal fun UnlockScreenContent(
 }
 
 @Composable
-private fun AccountStateCard(
-    session: UnlockSession,
-    onLogin: () -> Unit,
-    onLogout: () -> Unit,
-) {
+private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
     SketchCard(container = if (session.isValid) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f) else null) {
         SectionTitle("01", tr("АККАУНТ", "ACCOUNT"))
         if (session.isValid) {
@@ -198,11 +190,6 @@ private fun AccountStateCard(
                 shape = RoundedCornerShape(14.dp),
                 colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
             ) { Text(tr("СМЕНИТЬ / ОБНОВИТЬ ВХОД", "CHANGE / REFRESH SIGN-IN")) }
-            Spacer(Modifier.height(8.dp))
-            TextButton(
-                onClick = onLogout,
-                modifier = Modifier.fillMaxWidth(),
-            ) { Text(tr("ВЫЙТИ ИЗ АККАУНТА", "SIGN OUT")) }
         } else {
             Text(
                 tr(

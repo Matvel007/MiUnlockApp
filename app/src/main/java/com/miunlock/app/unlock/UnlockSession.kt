@@ -7,7 +7,9 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.miunlock.app.domain.ProxySettings
 import com.miunlock.app.domain.ProxyType
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 
 /** Авторизованная сессия режима разблокировки. Отдельная от режима заявки. */
 data class UnlockSession(
@@ -57,8 +59,15 @@ class UnlockStore(private val context: Context) {
         val proxyPassword = stringPreferencesKey("unlock_proxy_password")
     }
 
-    suspend fun session(): UnlockSession {
-        val p = context.unlockDataStore.data.first()
+    /**
+     * Сессия как поток: DataStore сам сообщает об изменениях. Нужно, чтобы экран
+     * обновлялся сразу после входа в аккаунт на отдельном экране, без перезахода.
+     */
+    fun sessionFlow(): Flow<UnlockSession> = context.unlockDataStore.data.map { p -> toSession(p) }
+
+    suspend fun session(): UnlockSession = toSession(context.unlockDataStore.data.first())
+
+    private fun toSession(p: Preferences): UnlockSession {
         return UnlockSession(
             serviceToken = p[Keys.token].orEmpty(),
             ssecurity = p[Keys.ssecurity].orEmpty(),

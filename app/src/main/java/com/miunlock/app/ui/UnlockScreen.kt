@@ -57,6 +57,8 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogLevel
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.ProxySettings
 import com.miunlock.app.domain.ProxyType
 import com.miunlock.app.fastboot.FastbootUsb
@@ -151,12 +153,19 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
     init {
         viewModelScope.launch {
-            state = state.copy(session = store.session(), proxy = store.proxy())
+            // Начальное состояние читаем напрямую: так экран не зависит от того,
+            // успел ли поток хранилища отдать первое значение при холодном старте.
+            val saved = store.session()
+            state = state.copy(session = saved, proxy = store.proxy())
         }
-    }
-
-    fun refreshSession() {
-        viewModelScope.launch { state = state.copy(session = store.session()) }
+        // Дальше следим за хранилищем: вход на отдельном экране сразу виден здесь.
+        viewModelScope.launch {
+            store.sessionFlow().collect { session ->
+                if (session != state.session) {
+                    state = state.copy(session = session)
+                }
+            }
+        }
     }
 
     fun saveSession(session: UnlockSession) {
@@ -335,10 +344,7 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
     val vm: UnlockViewModel = viewModel()
     val context = LocalContext.current
     val language = LocalLanguage.current
-    LaunchedEffect(language) {
-        vm.setLanguage(language)
-        vm.refreshSession()
-    }
+    LaunchedEffect(language) { vm.setLanguage(language) }
     UnlockScreenContent(
         state = vm.state,
         language = language,
