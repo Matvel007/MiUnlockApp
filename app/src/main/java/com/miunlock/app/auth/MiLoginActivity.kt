@@ -81,6 +81,9 @@ class MiLoginActivity : ComponentActivity() {
     private var verificationMethods by mutableStateOf(emptyList<String>())
     private var selectedMethod by mutableStateOf<String?>(null)
     private var codeSent by mutableStateOf(false)
+
+    /** Способ, по которому Xiaomi отказал из-за частых попыток: даём кнопку «получить код снова». */
+    private var retryMethod by mutableStateOf<String?>(null)
     private var language = "ru"
     private var qrMode by mutableStateOf(false)
     private var qrBitmap by mutableStateOf<Bitmap?>(null)
@@ -105,6 +108,7 @@ class MiLoginActivity : ComponentActivity() {
         verificationMethods = savedInstanceState?.getStringArrayList("verificationMethods")?.toList().orEmpty()
         selectedMethod = savedInstanceState?.getString("selectedMethod")
         codeSent = savedInstanceState?.getBoolean("codeSent") ?: false
+        retryMethod = savedInstanceState?.getString("retryMethod")
         setContent {
             MiUnlockTheme {
                 BackHandler(enabled = qrMode) { cancelQr() }
@@ -124,11 +128,13 @@ class MiLoginActivity : ComponentActivity() {
                         status = status,
                         working = working,
                         codeSent = codeSent,
+                        canResend = retryMethod != null,
                         language = language,
                         onAccountChange = { account = it },
                         onPasswordChange = { password = it },
                         onCodeChange = { verificationCode = it },
                         onLogin = ::login,
+                        onResend = { retryMethod?.let { method -> lifecycleScope.launch { sendCode(method) } } },
                         onQr = ::startQrLogin,
                         onClose = ::finish,
                     )
@@ -143,6 +149,7 @@ class MiLoginActivity : ComponentActivity() {
         outState.putStringArrayList("verificationMethods", ArrayList(verificationMethods))
         outState.putString("selectedMethod", selectedMethod)
         outState.putBoolean("codeSent", codeSent)
+        outState.putString("retryMethod", retryMethod)
         outState.putString("language", language)
         outState.putString("mode", mode)
         super.onSaveInstanceState(outState)
@@ -172,6 +179,7 @@ class MiLoginActivity : ComponentActivity() {
         lifecycleScope.launch {
             try {
                 working = true
+                retryMethod = null
                 status = t("Проверяю Xiaomi Account...", "Checking Xiaomi Account...")
                 configureAuthProxy()
                 // В режиме разблокировки сессия заявки неприкосновенна: неудачный
@@ -217,13 +225,16 @@ class MiLoginActivity : ComponentActivity() {
         val wait = result.optInt("retryAfter", 0)
         if (wait > 0) {
             // Сервер не отправил ни одного кода: говорить «код отправлен» нельзя.
+            // Показываем кнопку повторной отправки, чтобы человеку было что нажать.
             codeSent = false
+            retryMethod = method
             status = t(
-                "Xiaomi не отправил код: слишком частые попытки. Подождите $wait с и нажмите «Получить код» снова.",
-                "Xiaomi did not send the code: too many attempts. Wait $wait s and tap Get code again.",
+                "Xiaomi не отправил код: слишком частые попытки. Подождите $wait с и нажмите «Получить код снова».",
+                "Xiaomi did not send the code: too many attempts. Wait $wait s and tap Send code again.",
             )
             return
         }
+        retryMethod = null
         codeSent = true
         status = if (method == "PH") {
             t(
@@ -245,7 +256,12 @@ class MiLoginActivity : ComponentActivity() {
     private suspend fun chooseMethod(methods: List<String>): String? {
         if (methods.isEmpty()) return null
         val quotas = runCatching { auth.quotas(methods) }.getOrDefault(emptyMap())
-        val available = methods.filter { (quotas[it] ?: 1) > 0 }
+        // Отрицательное значение — сервер не назвал остаток, это не «ноль»:
+        // такой способ считаем доступным, иначе заблокируем вход на ровном месте.
+        val available = methods.filter { method ->
+            val left = quotas[method]
+            left == null || left < 0 || left > 0
+        }
         DebugLog.add(
             LogLevel.INFO, LogTag.AUTH,
             "способы $methods, остатки " + quotas.entries.joinToString(", ") { "${it.key}=${it.value}" } +
@@ -462,11 +478,13 @@ private fun LoginScreen(
     status: String,
     working: Boolean,
     codeSent: Boolean,
+    canResend: Boolean,
     language: String,
     onAccountChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
     onCodeChange: (String) -> Unit,
     onLogin: () -> Unit,
+    onResend: () -> Unit,
     onQr: () -> Unit,
     onClose: () -> Unit,
 ) {
@@ -530,11 +548,30 @@ private fun LoginScreen(
                         )
                     }
                     Spacer(Modifier.height(8.dp))
+                    // Xiaomi отказал из-за частых попыток — даём кнопку, чтобы
+                    // можно было повторить отправку, не вводя пароль заново.
+                    if (canResend) {
+                        OutlinedButton(onResend, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
+                            Text(if (language == "en") "SEND CODE AGAIN" else "ПОЛУЧИТЬ КОД СНОВА")
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
                     OutlinedButton(onQr, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
                         Text(if (language == "en") "SIGN IN VIA QR" else "ВОЙТИ ЧЕРЕЗ QR")
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(status, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
+                    Spacer(Modifier.height(8.dp))
+                    // Человеку нужно знать заранее, куда придёт код, чтобы не ждать SMS.
+                    Text(
+                        if (language == "en") {
+                            "The code goes to your email first. If email is unavailable, Xiaomi sends it to your phone number instead."
+                        } else {
+                            "Код приходит на почту. Если почта недоступна — Xiaomi отправит его на номер телефона."
+                        },
+                        color = MaterialTheme.colorScheme.secondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
                 }
             }
             item { OutlinedButton(onClose, Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) { Text(if (language == "en") "CLOSE" else "ЗАКРЫТЬ") } }
