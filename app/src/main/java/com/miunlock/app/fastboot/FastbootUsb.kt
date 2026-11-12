@@ -61,9 +61,11 @@ class FastbootUsb(private val context: Context) {
     fun hasFastbootInterface(dev: UsbDevice): Boolean {
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
-            if (intf.interfaceClass == CLASS &&
-                intf.interfaceSubclass == SUBCLASS &&
-                intf.interfaceProtocol == PROTOCOL
+            if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
+            // Часть прошивок отдаёт fastboot с протоколом 0x00/0x01 — узнаём по PID.
+            if (com.miunlock.app.adb.UsbDeviceKind.isFastboot(
+                    intf.interfaceProtocol, dev.vendorId, dev.productId,
+                )
             ) {
                 return true
             }

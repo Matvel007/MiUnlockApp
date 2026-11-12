@@ -63,7 +63,19 @@ class AdbClient(
     fun hasAdbInterface(dev: UsbDevice): Boolean {
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
-            if (intf.interfaceClass == CLASS && intf.interfaceSubclass == SUBCLASS) return true
+            if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
+            // Fastboot отличается от ADB только протоколом/PID. Если этого не
+            // учитывать, в загрузчик уходит ADB-пакет и «телефон молчит».
+            if (UsbDeviceKind.isAdb(intf.interfaceProtocol, dev.vendorId, dev.productId)) return true
+        }
+        return false
+    }
+
+    /** Телефон уже в загрузчике — ADB тут бессилен, его надо просто найти как fastboot. */
+    fun isInFastboot(dev: UsbDevice): Boolean {
+        for (i in 0 until dev.interfaceCount) {
+            val intf = dev.getInterface(i)
+            if (UsbDeviceKind.isFastboot(intf.interfaceProtocol, dev.vendorId, dev.productId)) return true
         }
         return false
     }

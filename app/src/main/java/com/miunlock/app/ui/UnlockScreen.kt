@@ -212,6 +212,19 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         val found = adb.candidates()
         if (found.isEmpty()) {
             val alreadyFastboot = usb.candidates().isNotEmpty()
+            if (alreadyFastboot) {
+                // Телефон уже в загрузчике: переводить некуда, сразу ищем его.
+                state = state.copy(
+                    error = null,
+                    status = Bilingual(
+                        "Телефон уже в fastboot — ищу устройство",
+                        "The phone is already in fastboot — looking for it",
+                    ),
+                )
+                DebugLog.add(t("Разблокировка: телефон уже в fastboot", "Unlock: phone is already in fastboot"))
+                scanDevice()
+                return
+            }
             state = state.copy(
                 error = null,
                 status = if (alreadyFastboot) {
