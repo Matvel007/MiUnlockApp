@@ -200,8 +200,8 @@ class MiLoginActivity : ComponentActivity() {
                     if (method == null) {
                         DebugLog.error(LogTag.AUTH, "нет попыток ни на одном способе")
                         status = t(
-                            "Лимит отправки кодов исчерпан и на почту, и на SMS. Попробуйте позже или войдите под другим аккаунтом.",
-                            "The code limit is used up for both email and SMS. Try later or sign in with another account.",
+                            "Коды на этом аккаунте закончились и на почте, и на SMS — Xiaomi их не отправит. Войдите через QR (аккаунт уже открыт на другом устройстве) или под другим аккаунтом.",
+                            "Codes are used up for both email and SMS on this account — Xiaomi will not send them. Sign in via QR (the account is already open on another device) or use another account.",
                         )
                         return@launch
                     }
@@ -287,8 +287,8 @@ class MiLoginActivity : ComponentActivity() {
                     val nextMethod = chooseMethod(result.verificationMethods)
                     if (nextMethod == null) {
                         status = t(
-                            "Лимит отправки кодов исчерпан и на почту, и на SMS.",
-                            "The code limit is used up for both email and SMS.",
+                            "Коды закончились и на почте, и на SMS. Войдите через QR или под другим аккаунтом.",
+                            "Codes are used up for both email and SMS. Sign in via QR or use another account.",
                         )
                         return@launch
                     }
