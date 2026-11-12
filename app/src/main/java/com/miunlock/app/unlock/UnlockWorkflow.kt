@@ -34,7 +34,13 @@ internal fun unlockSucceeded(reply: Boolean, stillConnected: Boolean): Boolean =
 
 sealed class UnlockOutcome {
     data class Success(val message: String) : UnlockOutcome()
-    data class Failure(val step: UnlockStep, val message: String, val code: Int? = null) : UnlockOutcome()
+    data class Failure(
+        val step: UnlockStep,
+        val message: String,
+        val code: Int? = null,
+        /** Остаток обязательного ожидания, если сервер его назвал (`data.waitHour`). */
+        val waitHours: Int? = null,
+    ) : UnlockOutcome()
     data object Cancelled : UnlockOutcome()
 }
 
@@ -384,7 +390,18 @@ class UnlockWorkflow(
                             if (same) "совпадают" else "РАЗНЫЕ аккаунты",
                     )
                 }
-                return UnlockOutcome.Failure(UnlockStep.AHA, result.desc, result.code)
+                // Остаток ожидания. Сервер называет его в data.waitHour — это
+                // единственное место, где вообще есть часы. Проверено на живом
+                // ответе 20036: data={"waitHour":66}.
+                val waitHours = result.json.optJSONObject("data")?.optInt("waitHour", 0)
+                    ?.takeIf { it > 0 }
+                if (waitHours != null) {
+                    DebugLog.add(
+                        LogLevel.INFO, LogTag.API,
+                        "ahaUnlock: сервер назвал остаток ожидания — $waitHours ч",
+                    )
+                }
+                return UnlockOutcome.Failure(UnlockStep.AHA, result.desc, result.code, waitHours)
             }
             val encryptData = result.json.optString("encryptData")
             if (encryptData.isEmpty()) {

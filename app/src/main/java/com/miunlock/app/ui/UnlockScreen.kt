@@ -447,9 +447,10 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                     error = outcome.message,
                     errorCode = outcome.code,
                     errorHint = unlockHint(outcome.code),
-                    // Сервер называет срок прямо в тексте: «you can unlock in 71 hours».
-                    // Вытаскиваем его, чтобы показать человеку часы, а не простыню.
-                    waitHours = waitHoursIn(outcome.message),
+                    // Срок приходит двумя путями: структурно в data.waitHour
+                    // (так отвечает 20036) и текстом «you can unlock in 71 hours».
+                    // Структурное поле надёжнее — текст разбираем как запасной.
+                    waitHours = outcome.waitHours ?: waitHoursIn(outcome.message),
                 )
             }
             DebugLog.add(t("Разблокировка: ", "Unlock: ") + state.status.pick(lang))
