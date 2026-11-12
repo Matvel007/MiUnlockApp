@@ -94,6 +94,8 @@ data class UnlockUiState(
     val error: String? = null,
     /** Код ответа сервера, если он был: 10005, 20036 и т. п. */
     val errorCode: Int? = null,
+    /** Понятное объяснение известного кода ответа сервера. */
+    val errorHint: Bilingual? = null,
     /** Сколько часов ждать, если сервер назвал срок в тексте отказа. */
     val waitHours: Int? = null,
     val confirm: ClearConfirm? = null,
@@ -106,6 +108,26 @@ private val HOURS = Regex("""(?<!\d)(\d{1,4})(?!\d)\s*(?:hour|hr|час)""", Reg
 /** Срок ожидания из текста ответа сервера: «wait 71 hours», «71 час». */
 internal fun waitHoursIn(message: String): Int? =
     HOURS.find(message)?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..10_000 }
+
+/**
+ * Известные коды ответа unlock.update.*. Сервер отвечает по-английски и общо,
+ * человеку нужно объяснение: это не сбой приложения, а правило Xiaomi.
+ */
+internal fun unlockHint(code: Int?): Bilingual? = when (code) {
+    10023, 20030 -> Bilingual(
+        "Этот аккаунт уже разблокировал устройство в этом месяце. Xiaomi разрешает одно устройство в месяц — ждите начала следующего.",
+        "This account already unlocked a device this month. Xiaomi allows one device per month — wait for the next month.",
+    )
+    10005 -> Bilingual(
+        "Сервер счёл запрос устаревшим. Нажмите «Разблокировать» ещё раз.",
+        "The server treated the request as stale. Tap “Unlock” again.",
+    )
+    20031, 20032 -> Bilingual(
+        "Аккаунт не имеет права на разблокировку. Проверьте, что он подходит под условия Xiaomi.",
+        "This account is not allowed to unlock. Check that it meets Xiaomi's requirements.",
+    )
+    else -> null
+}
 
 class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -173,6 +195,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 product = "",
                 error = null,
                 errorCode = null,
+                errorHint = null,
                 waitHours = null,
                 status = Bilingual("Устройство не найдено", "No device found"),
             )
@@ -224,7 +247,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() {
-        state = state.copy(error = null, errorCode = null, waitHours = null)
+        state = state.copy(error = null, errorCode = null, errorHint = null, waitHours = null)
     }
 
     fun answerConfirm(ok: Boolean) {
@@ -295,6 +318,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                     status = Bilingual("Остановлено на шаге ${outcome.step.name}", "Stopped at ${outcome.step.name}"),
                     error = outcome.message,
                     errorCode = outcome.code,
+                    errorHint = unlockHint(outcome.code),
                     // Сервер называет срок прямо в тексте: «you can unlock in 71 hours».
                     // Вытаскиваем его, чтобы показать человеку часы, а не простыню.
                     waitHours = waitHoursIn(outcome.message),

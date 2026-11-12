@@ -335,6 +335,14 @@ private fun StatusLine(state: UnlockUiState) {
                         color = MaterialTheme.colorScheme.secondary,
                     )
                 }
+                state.errorHint?.let { hint ->
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        hint.pick(LocalLanguage.current),
+                        fontSize = 12.sp,
+                        color = accent,
+                    )
+                }
             }
         }
     }
