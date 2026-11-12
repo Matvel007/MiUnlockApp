@@ -190,14 +190,18 @@ def verify_code(method, code, sid):
     return _reply(_finish_auth(session.post(SERVICE_LOGIN_AUTH2, data=auth_data), sid))
 
 
-def exchange(sid):
-    cookies = session.cookies.get_dict()
+def _service_login(cookies, sid):
+    """Вход в сервис по уже имеющимся cookies. Возвращает (ответ, сессия, вариант, попытки).
+
+    Проверено на живом устройстве: работает первый вариант — три ключевые
+    cookie (deviceId, passToken, userId) без домена и с checkSafeAddress.
+    С полным набором сервис отвечает без ключа. Остальные варианты оставлены
+    на случай других аккаунтов и прошивок; перебор останавливается на первом
+    успешном, поэтому лишних запросов нет.
+    """
     required = {key: cookies.get(key) for key in ("deviceId", "passToken", "userId")}
-    if not all(required.values()):
-        return _reply({"ok": False, "error": _message("Xiaomi не выдал passToken, userId или deviceId", "Xiaomi did not provide passToken, userId or deviceId")})
 
     def attempt(cookie_set, safe):
-        """Один запрос serviceLogin. Возвращает (ответ, сессия)."""
         client = requests.Session()
         client.headers.update(session.headers)
         # Без домена — так cookie уходит на любой хост Xiaomi. Проверенная
@@ -210,21 +214,16 @@ def exchange(sid):
             params["checkSafeAddress"] = "true"
         return _json(client.get(SERVICE_LOGIN, params=params)), client
 
-    # Проверено на живом устройстве: работает первый вариант — три ключевые
-    # cookie без домена и с checkSafeAddress. С полным набором из девяти
-    # сервис отвечает result: error и ключа не даёт. Остальные варианты
-    # оставлены на случай других аккаунтов и прошивок; перебор
-    # останавливается на первом успешном, поэтому лишних запросов нет.
     variants = [
         ("3+safe", required, True),
         ("all+safe", cookies, True),
         ("3", required, False),
         ("all", cookies, False),
     ]
-    attempts = []
-    first, client, key_source = None, None, sid
-    nonce = ssecurity = location = None
+    attempts, first, found, key_source = [], None, None, sid
     for name, cookie_set, safe in variants:
+        if not all(cookie_set.values()):
+            continue
         answer, probe = attempt(cookie_set, safe)
         attempts.append({
             "variant": name,
@@ -235,12 +234,24 @@ def exchange(sid):
             "result": answer.get("result"),
         })
         if answer.get("nonce") and answer.get("ssecurity"):
-            first, client = answer, probe
-            nonce, ssecurity, location = answer["nonce"], answer["ssecurity"], answer.get("location")
+            found = (answer, probe)
             key_source = f"{sid}:{name}"
             break
         if first is None:
             first = answer
+    answer, client = found if found else (first, None)
+    return answer, client, key_source, attempts
+
+
+def exchange(sid):
+    cookies = session.cookies.get_dict()
+    if not all(cookies.get(key) for key in ("deviceId", "passToken", "userId")):
+        return _reply({"ok": False, "error": _message("Xiaomi не выдал passToken, userId или deviceId", "Xiaomi did not provide passToken, userId or deviceId")})
+
+    first, client, key_source, attempts = _service_login(cookies, sid)
+    nonce = (first or {}).get("nonce")
+    ssecurity = (first or {}).get("ssecurity")
+    location = (first or {}).get("location")
 
     exchange_debug = {
         "code": first.get("code") if first else None,
@@ -286,13 +297,18 @@ def exchange(sid):
         return _reply({"ok": False, "debug": exchange_debug, "error": _message(
             f"Сервис {sid} не выдал cookies (код {first.get('code')})",
             f"Service {sid} did not return cookies (code {first.get('code')})")})
+    # Хост, на который ведёт STS, — это и есть домен сервиса. Токен привязан
+    # к нему, поэтому клиент пробует его первым, а зону оставляет запасным.
+    parsed = urlparse(location)
+    sts_domain = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
     return _reply({
         "ok": True,
         "token": token,
-        "deviceId": required["deviceId"],
-        "userId": required["userId"],
+        "deviceId": cookies["deviceId"],
+        "userId": cookies["userId"],
         "ssecurity": ssecurity,
         "cookies": service_cookies,
+        "stsDomain": sts_domain,
         "debug": exchange_debug,
     })
 
@@ -307,14 +323,17 @@ def refresh(sid, cookies_json):
     saved = json.loads(cookies_json)
     if not all(saved.get(k) for k in ("deviceId", "passToken", "userId")):
         return _reply({"ok": False, "error": _message("Нет сохранённой сессии", "No saved session")})
-    client = requests.Session()
-    client.headers.update(session.headers)
-    for key, value in saved.items():
-        client.cookies.set(key, value)
-    answer = _json(client.get(SERVICE_LOGIN, params={"sid": sid, "_json": True, "checkSafeAddress": "true"}))
+    # Тот же перебор вариантов, что и при входе: с полным набором cookies
+    # сервис отвечает без ключа, рабочий вариант — три ключевые cookie.
+    answer, client, key_source, attempts = _service_login(saved, sid)
+    answer = answer or {}
+    if client is None:
+        return _reply({"ok": False, "attempts": attempts, "error": _message(
+            f"Сессия не обновляется (код {answer.get('code')})",
+            f"Session cannot be refreshed (code {answer.get('code')})")})
     nonce, ssecurity, location = answer.get("nonce"), answer.get("ssecurity"), answer.get("location")
     if not nonce or not ssecurity or not location:
-        return _reply({"ok": False, "error": _message(
+        return _reply({"ok": False, "attempts": attempts, "error": _message(
             f"Сессия не обновляется (код {answer.get('code')})",
             f"Session cannot be refreshed (code {answer.get('code')})")})
     sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
@@ -325,11 +344,13 @@ def refresh(sid, cookies_json):
     )
     cookies = client.cookies.get_dict()
     token = next((v for k, v in sorted(cookies.items()) if k.lower().endswith("servicetoken")), "")
+    parsed = urlparse(location)
     return _reply({
         "ok": True,
         "cookies": cookies,
         "ssecurity": ssecurity,
         "token": token,
+        "stsDomain": f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "",
         "stsStatus": sts.status_code,
         "stsCookies": sorted(sts.cookies.get_dict().keys()),
     })

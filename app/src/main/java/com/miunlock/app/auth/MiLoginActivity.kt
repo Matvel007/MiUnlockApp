@@ -359,6 +359,7 @@ class MiLoginActivity : ComponentActivity() {
                 cookies = login.cookies,
                 sid = SID_UNLOCK,
                 zone = zone,
+                stsDomain = login.stsDomain,
             ),
         )
         DebugLog.add("Разблокировка: сессия Mi Account получена")

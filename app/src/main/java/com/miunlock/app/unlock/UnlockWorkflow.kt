@@ -231,24 +231,42 @@ class UnlockWorkflow(
             }
             listener.onProgress(UnlockProgress(UnlockStep.TOKEN, "Токен получен, ${token.length} символов", "Token received, ${token.length} chars"))
 
-            val domain = UnlockApi.domainForZone(session.zone)
+            // Домен сервиса Xiaomi называет сам в STS — токен привязан к нему.
+            // Зона остаётся запасным вариантом: у части аккаунтов STS ведёт
+            // не туда, куда указывает регион.
+            val domains = buildList {
+                if (session.stsDomain.isNotBlank()) add(session.stsDomain)
+                val zoned = UnlockApi.domainForZone(session.zone)
+                if (zoned !in this) add(zoned)
+            }
             DebugLog.add(
                 LogLevel.INFO,
                 LogTag.API,
-                "зона ${session.zone}, домен $domain",
+                "зона ${session.zone}, домены ${domains.joinToString(" → ")}",
             )
 
             step(UnlockStep.NONCE, "Запрашиваю nonce", "Requesting a nonce")
-            val nonce1 = try {
-                api.nonce(domain, session.ssecurity, session.cookies)
-            } catch (error: Throwable) {
-                // 401 — сервер не принял сессию. Чаще всего дело в дата-центре:
-                // аккаунт живёт в другой зоне, и чужой домен его не узнаёт.
-                val hint = if (error.message?.contains("401") == true) {
-                    "сервер отклонил сессию (зона ${session.zone}) — проверьте зону сервера " +
-                        "в настройках разблокировки или войдите в Mi Account заново"
+            var nonce1: UnlockApiResult? = null
+            var domain = domains.first()
+            var lastError: Throwable? = null
+            for (candidate in domains) {
+                try {
+                    nonce1 = api.nonce(candidate, session.ssecurity, session.cookies)
+                    domain = candidate
+                    break
+                } catch (error: Throwable) {
+                    lastError = error
+                    // 401 — сервер не принял сессию на этом домене, пробуем следующий.
+                    if (error.message?.contains("401") == true) continue
+                    break
+                }
+            }
+            if (nonce1 == null) {
+                val hint = if (lastError?.message?.contains("401") == true) {
+                    "сервер отклонил сессию на всех доменах (${domains.joinToString()}) — " +
+                        "войдите в Mi Account заново"
                 } else {
-                    error.message ?: "запрос не прошёл"
+                    lastError?.message ?: "запрос не прошёл"
                 }
                 return UnlockOutcome.Failure(UnlockStep.NONCE, hint)
             }

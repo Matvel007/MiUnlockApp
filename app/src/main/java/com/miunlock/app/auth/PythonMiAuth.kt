@@ -31,6 +31,8 @@ data class ServiceLogin(
     val userId: String,
     val ssecurity: String,
     val cookies: Map<String, String>,
+    /** Домен сервиса, который Xiaomi назвал в STS. Токен привязан к нему. */
+    val stsDomain: String = "",
 )
 
 data class QrLoginData(
@@ -144,7 +146,12 @@ class PythonMiAuth(context: Context) {
     }
 
     /** Новые cookies сервиса по сохранённой сессии: токен живёт около часа. */
-    data class RefreshedSession(val cookies: Map<String, String>, val ssecurity: String, val token: String)
+    data class RefreshedSession(
+        val cookies: Map<String, String>,
+        val ssecurity: String,
+        val token: String,
+        val stsDomain: String = "",
+    )
 
     suspend fun refresh(sid: String, cookies: Map<String, String>): RefreshedSession? = withContext(Dispatchers.IO) {
         val payload = JSONObject(cookies as Map<*, *>).toString()
@@ -159,12 +166,16 @@ class PythonMiAuth(context: Context) {
         val fresh = result.optJSONObject("cookies")?.let { obj ->
             obj.keys().asSequence().associateWith { obj.optString(it) }
         }.orEmpty()
+        val stsNames = result.optJSONArray("stsCookies")?.let { a ->
+            List(a.length()) { a.optString(it) }
+        }?.joinToString().orEmpty()
         DebugLog.add(
             LogLevel.INFO, LogTag.AUTH,
             "сессия обновлена: STS ${result.optInt("stsStatus")}, cookies ${fresh.size}, " +
-                "токен ${if (result.optString("token").isEmpty()) "нет" else "есть"}",
+                "токен ${if (result.optString("token").isEmpty()) "нет" else "есть"}, " +
+                "STS выдал [$stsNames], домен ${result.optString("stsDomain").ifBlank { "?" }}",
         )
-        RefreshedSession(fresh, result.optString("ssecurity"), result.optString("token"))
+        RefreshedSession(fresh, result.optString("ssecurity"), result.optString("token"), result.optString("stsDomain"))
     }
 
     suspend fun exchange(sid: String): Pair<String, String> {
@@ -219,6 +230,7 @@ class PythonMiAuth(context: Context) {
             userId = result.optString("userId"),
             ssecurity = result.optString("ssecurity"),
             cookies = cookies,
+            stsDomain = result.optString("stsDomain"),
         )
     }
 

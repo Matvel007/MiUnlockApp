@@ -21,6 +21,11 @@ data class UnlockSession(
     val zone: String = UnlockApi.ZONE_SINGAPORE,
     /** Сервис, под который выдан токен. Пусто у старых сессий — они не годятся. */
     val sid: String = "",
+    /**
+     * Хост, который Xiaomi сам назвал в STS (`location`). Токен сервиса
+     * привязан именно к нему, поэтому этот адрес пробуем первым.
+     */
+    val stsDomain: String = "",
 ) {
     /**
      * Признак рабочей сессии. Токен сервиса нужен не всем режимам: запросы
@@ -52,6 +57,7 @@ class UnlockStore(private val context: Context) {
         val cookies = stringPreferencesKey("unlock_cookies")
         val zone = stringPreferencesKey("unlock_zone")
         val sid = stringPreferencesKey("unlock_sid")
+        val stsDomain = stringPreferencesKey("unlock_sts_domain")
         val proxyType = stringPreferencesKey("unlock_proxy_type")
         val proxyHost = stringPreferencesKey("unlock_proxy_host")
         val proxyPort = stringPreferencesKey("unlock_proxy_port")
@@ -76,6 +82,7 @@ class UnlockStore(private val context: Context) {
             cookies = decodeCookies(p[Keys.cookies].orEmpty()),
             zone = p[Keys.zone] ?: UnlockApi.ZONE_SINGAPORE,
             sid = p[Keys.sid].orEmpty(),
+            stsDomain = p[Keys.stsDomain].orEmpty(),
         )
     }
 
@@ -88,6 +95,7 @@ class UnlockStore(private val context: Context) {
             p[Keys.cookies] = encodeCookies(session.cookies)
             p[Keys.zone] = session.zone
             p[Keys.sid] = session.sid
+            p[Keys.stsDomain] = session.stsDomain
         }
     }
 

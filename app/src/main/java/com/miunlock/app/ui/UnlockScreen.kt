@@ -194,6 +194,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 cookies = fresh.cookies,
                 ssecurity = fresh.ssecurity.ifBlank { prepared.ssecurity },
                 serviceToken = fresh.token.ifBlank { prepared.serviceToken },
+                stsDomain = fresh.stsDomain.ifBlank { prepared.stsDomain },
             )
         }
         auth.applySession(prepared.cookies)
