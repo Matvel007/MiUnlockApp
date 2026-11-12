@@ -155,7 +155,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun updateSettings(transform: com.miunlock.app.domain.UserSettings.() -> com.miunlock.app.domain.UserSettings) {
-        viewModelScope.launch { app.container.settingsStore.save(state.value.settings.transform()) }
+        // База — из хранилища, а не из state: до первой эмиссии там дефолты,
+        // и сохранение затёрло бы токен и deviceId.
+        viewModelScope.launch {
+            val current = app.container.settingsStore.current()
+            app.container.settingsStore.save(current.transform())
+        }
     }
 
     private fun updateProxy(transform: com.miunlock.app.domain.ProxySettings.() -> com.miunlock.app.domain.ProxySettings) {

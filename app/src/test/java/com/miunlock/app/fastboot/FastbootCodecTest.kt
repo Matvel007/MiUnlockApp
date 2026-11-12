@@ -74,7 +74,17 @@ class FastbootCodecTest {
     fun `длина для stage всегда восемь hex-цифр`() {
         assertEquals("00000010", FastbootCodec.hexLength(16))
         assertEquals("00010000", FastbootCodec.hexLength(65536))
-        assertEquals("ffffffff", FastbootCodec.hexLength(-1))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `отрицательная длина — ошибка, а не кадр`() {
+        FastbootCodec.hexLength(-1)
+    }
+
+    @Test
+    fun `битая длина в DATA не превращается в ноль байт`() {
+        val (bytes, len) = frame("DATAzzzz")
+        assertTrue(FastbootCodec.parseFrame(bytes, len) is FastbootFrame.Unknown)
     }
 
     @Test

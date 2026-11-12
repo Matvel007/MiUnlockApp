@@ -79,7 +79,7 @@ class MiLoginActivity : ComponentActivity() {
     private var qrStatus by mutableStateOf("")
 
     /** `apply` — режим заявки, `unlock` — режим разблокировки со своей сессией. */
-    private var mode = "apply"
+    private var mode = MODE_APPLY
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -91,7 +91,7 @@ class MiLoginActivity : ComponentActivity() {
         }
         hideStatusBars()
         language = savedInstanceState?.getString("language") ?: intent.getStringExtra("language") ?: "ru"
-        mode = savedInstanceState?.getString("mode") ?: intent.getStringExtra("mode") ?: "apply"
+        mode = savedInstanceState?.getString("mode") ?: intent.getStringExtra("mode") ?: MODE_APPLY
         account = savedInstanceState?.getString("account").orEmpty()
         status = savedInstanceState?.getString("status") ?: t("Введите Xiaomi ID, email или телефон и пароль.", "Enter Xiaomi ID, email or phone and password.")
         verificationMethods = savedInstanceState?.getStringArrayList("verificationMethods")?.toList().orEmpty()
@@ -166,7 +166,9 @@ class MiLoginActivity : ComponentActivity() {
                 working = true
                 status = t("Проверяю Xiaomi Account...", "Checking Xiaomi Account...")
                 configureAuthProxy()
-                clearSavedCredentials()
+                // В режиме разблокировки сессия заявки неприкосновенна: неудачный
+                // вход сюда не должен выкидывать человека из первого режима.
+                if (mode != MODE_UNLOCK) clearSavedCredentials()
                 val result = auth.login(account, password, SID, language)
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
@@ -223,7 +225,7 @@ class MiLoginActivity : ComponentActivity() {
 
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
-        if (mode == "unlock") {
+        if (mode == MODE_UNLOCK) {
             finishUnlockLogin()
             return
         }
@@ -279,7 +281,7 @@ class MiLoginActivity : ComponentActivity() {
 
     private suspend fun configureAuthProxy(): com.miunlock.app.domain.ProxySettings {
         val container = (application as MiUnlockApp).container
-        val proxy = if (mode == "unlock") container.unlockStore.proxy() else container.settingsStore.current().proxy
+        val proxy = if (mode == MODE_UNLOCK) container.unlockStore.proxy() else container.settingsStore.current().proxy
         auth.setProxy(proxy)
         DebugLog.add(if (proxy.isEnabled) "Авторизация Xiaomi через HTTP-прокси" else "Авторизация Xiaomi без прокси")
         return proxy
@@ -364,9 +366,12 @@ class MiLoginActivity : ComponentActivity() {
 
     private fun t(ru: String, en: String) = if (language == "en") en else ru
 
-    private companion object {
-        const val SID = "18n_bbs_global"
-        const val QR_SID = "passport"
+    companion object {
+        const val MODE_APPLY = "apply"
+        const val MODE_UNLOCK = "unlock"
+
+        private const val SID = "18n_bbs_global"
+        private const val QR_SID = "passport"
     }
 }
 

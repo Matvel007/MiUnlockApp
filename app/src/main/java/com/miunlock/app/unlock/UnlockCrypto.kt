@@ -119,10 +119,18 @@ object UnlockCrypto {
     fun decryptResponse(body: String, ssecurity: String): JSONObject {
         val trimmed = body.trim()
         require(trimmed.isNotEmpty()) { "пустой ответ" }
-        val key = Base64.getDecoder().decode(ssecurity)
-        val plain = aesDecrypt(key, Base64.getDecoder().decode(trimmed))
-        val inner = String(plain, StandardCharsets.UTF_8)
-        val jsonBytes = Base64.getDecoder().decode(inner)
+        // Ответ может прийти незашифрованным (ошибка шлюза, HTML от прокси).
+        // Пользователю нужен внятный текст, а не «bad base-64».
+        val jsonBytes = try {
+            val key = Base64.getDecoder().decode(ssecurity)
+            val plain = aesDecrypt(key, Base64.getDecoder().decode(trimmed))
+            Base64.getDecoder().decode(String(plain, StandardCharsets.UTF_8))
+        } catch (error: Exception) {
+            throw IllegalStateException(
+                "ответ сервера не расшифрован — проверьте зону и сессию аккаунта",
+                error,
+            )
+        }
         return JSONObject(String(jsonBytes, StandardCharsets.UTF_8))
     }
 

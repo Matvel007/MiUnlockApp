@@ -54,7 +54,10 @@ object FastbootCodec {
     }
 
     /** Длина для `stage:`/`download:` — ровно 8 hex-цифр в нижнем регистре. */
-    fun hexLength(size: Int): String = String.format(Locale.US, "%08x", size)
+    fun hexLength(size: Int): String {
+        require(size >= 0) { "длина не может быть отрицательной" }
+        return String.format(Locale.US, "%08x", size)
+    }
 
     fun parseFrame(bytes: ByteArray, length: Int = bytes.size): FastbootFrame {
         if (length < 4) return FastbootFrame.Unknown("", "")
@@ -64,7 +67,12 @@ object FastbootCodec {
             STATUS_OKAY -> FastbootFrame.Okay(payload)
             STATUS_FAIL -> FastbootFrame.Fail(payload)
             STATUS_INFO -> FastbootFrame.Info(payload)
-            STATUS_DATA -> FastbootFrame.Data(payload.toIntOrNull(16) ?: 0, payload)
+            STATUS_DATA -> payload.toIntOrNull(16)
+                // Невалидная длина — не «ноль байт»: иначе загрузчик будет ждать
+                // данные, которых мы не отправим, и команда повиснет.
+                ?.takeIf { it >= 0 }
+                ?.let { FastbootFrame.Data(it, payload) }
+                ?: FastbootFrame.Unknown(prefix, payload)
             STATUS_TEXT -> FastbootFrame.Text(payload)
             else -> FastbootFrame.Unknown(prefix, payload)
         }

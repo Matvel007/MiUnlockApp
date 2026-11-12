@@ -135,14 +135,19 @@ class PythonMiAuth(context: Context) {
             .apply { if (cookieHeader.isNotBlank()) header("Cookie", cookieHeader) }
             .get()
             .build()
-        qrClient(proxy, timeoutMs).newCall(request).execute().use { response ->
-            if (!response.isSuccessful) error("QR long-poll HTTP ${response.code}")
-            val raw = response.body?.string().orEmpty()
-            JSONObject(raw.removePrefix("&&&START&&&"))
-            val setCookies = JSONArray(response.headers.values("Set-Cookie"))
-            val result = call("qr_apply_cookies", setCookies.toString())
-            requireOk(result)
-            QrPollResult(scanned = true, expired = false)
+        try {
+            qrClient(proxy, timeoutMs).newCall(request).execute().use { response ->
+                if (!response.isSuccessful) error("QR long-poll HTTP ${response.code}")
+                val raw = response.body?.string().orEmpty()
+                JSONObject(raw.removePrefix("&&&START&&&"))
+                val setCookies = JSONArray(response.headers.values("Set-Cookie"))
+                val result = call("qr_apply_cookies", setCookies.toString())
+                requireOk(result)
+                QrPollResult(scanned = true, expired = false)
+            }
+        } catch (timeout: java.net.SocketTimeoutException) {
+            // Long-poll просто истёк — это штатно: покажем новый QR, а не ошибку.
+            QrPollResult(scanned = false, expired = true)
         }
     }
 
@@ -169,7 +174,12 @@ class PythonMiAuth(context: Context) {
         if (!result.optBoolean("ok")) error(result.optString("error", "Xiaomi error"))
     }
 
+    /** Клиент переиспользуется: long-poll идёт циклом, новый пул на каждый круг — утечка потоков. */
+    private var qrClientCache: Pair<String, OkHttpClient>? = null
+
     private fun qrClient(proxy: ProxySettings, timeoutMs: Long): OkHttpClient {
+        val key = "${proxy.type}|${proxy.host}|${proxy.port}|${proxy.username}|$timeoutMs"
+        qrClientCache?.let { (cachedKey, client) -> if (cachedKey == key) return client }
         val builder = OkHttpClient.Builder()
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(timeoutMs + 5_000L, TimeUnit.MILLISECONDS)
@@ -187,6 +197,8 @@ class PythonMiAuth(context: Context) {
                 }
             }
         }
-        return builder.build()
+        val client = builder.build()
+        qrClientCache = key to client
+        return client
     }
 }

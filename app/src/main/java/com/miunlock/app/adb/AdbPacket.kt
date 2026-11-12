@@ -14,11 +14,10 @@ data class AdbPacket(
     val arg0: Int,
     val arg1: Int,
     val data: ByteArray,
+    /** Magic из самого заголовка: проверять надо его, а не пересчитанный. */
+    val magic: Int = command xor 0xFFFFFFFF.toInt(),
 ) {
-    val isValid: Boolean get() = command == (magic.inv())
-
-    private val magic: Int
-        get() = command xor 0xFFFFFFFF.toInt()
+    val isValid: Boolean get() = magic == (command xor 0xFFFFFFFF.toInt())
 
     companion object {
         const val HEADER = 24
@@ -67,14 +66,12 @@ data class AdbPacket(
             val magic = buffer.int
             if (magic != (command xor 0xFFFFFFFF.toInt())) return null
             val available = length - HEADER
-            if (size < 0 || size > available) {
-                // Тело могло не прийти целиком: отдаём то, что есть, чтобы не терять пакет.
-                val partial = ByteArray(available).also { buffer.get(it) }
-                return AdbPacket(command, arg0, arg1, partial)
-            }
+            // Неполный пакет — это не пакет: отдать обрезанное тело значит
+            // сбить поток и продолжить чтение с середины следующих данных.
+            if (size < 0 || size > available) return null
             val data = ByteArray(size).also { buffer.get(it) }
             if (checksum != crc32(data) && data.isNotEmpty()) return null
-            return AdbPacket(command, arg0, arg1, data)
+            return AdbPacket(command, arg0, arg1, data, magic)
         }
 
         fun payload(text: String): ByteArray =

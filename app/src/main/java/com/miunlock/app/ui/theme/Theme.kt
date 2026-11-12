@@ -34,8 +34,9 @@ private val DarkColors = darkColorScheme(
 fun MiUnlockTheme(content: @Composable () -> Unit) {
     val colors = DarkColors
     val view = LocalView.current
-    if (!view.isInEditMode) {
-        val window = (view.context as Activity).window
+    // Контекст может быть не Activity (preview, диалог) — тогда просто не трогаем окно.
+    val window = (view.context as? Activity)?.window
+    if (!view.isInEditMode && window != null) {
         window.statusBarColor = colors.primary.toArgbCompat()
         WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = false
     }

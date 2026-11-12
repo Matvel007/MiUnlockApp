@@ -3,6 +3,7 @@ package com.miunlock.app.data
 import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import java.time.Instant
 
 data class DebugEvent(val time: Instant, val message: String)
@@ -13,7 +14,8 @@ object DebugLog {
     val events = _events.asStateFlow()
 
     fun add(message: String) {
-        _events.value = (_events.value + DebugEvent(Instant.now(), message)).takeLast(MAX_EVENTS)
+        // update атомарен: запись идёт из сетевых потоков и из UI одновременно.
+        _events.update { (it + DebugEvent(Instant.now(), message)).takeLast(MAX_EVENTS) }
         Log.d(TAG, message)
     }
 

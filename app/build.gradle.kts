@@ -7,6 +7,8 @@ plugins {
 
 import java.util.Properties
 
+val appVersionName = "1.4"
+
 val releaseProperties = Properties()
 val releasePropertiesFile = rootProject.file("key/release.properties")
 if (releasePropertiesFile.exists()) {
@@ -22,7 +24,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 6
-        versionName = "1.4"
+        versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
         // Основная сборка — только ARM. Для отладки на эмуляторе ABI можно
         // переопределить: -PabiFilters=x86_64
@@ -45,7 +47,9 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
-            signingConfig = signingConfigs.getByName("release")
+            // Конфиг подписи подключаем только если он реально есть: иначе
+            // release-сборка падала бы на пустом storeFile.
+            if (releasePropertiesFile.exists()) signingConfig = signingConfigs.getByName("release")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
@@ -68,7 +72,7 @@ tasks.register<Copy>("copyReleaseApk") {
     dependsOn("assembleRelease")
     from(layout.buildDirectory.file("outputs/apk/release/app-release.apk"))
     into(rootProject.layout.projectDirectory.dir("release"))
-    rename { "MIUnlockApp_1.3.apk" }
+    rename { "MiUnlockApp_$appVersionName.apk" }
 }
 
 dependencies {

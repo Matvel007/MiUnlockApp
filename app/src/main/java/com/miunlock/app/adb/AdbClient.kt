@@ -32,6 +32,7 @@ class AdbClient(
 
         private const val TIMEOUT_MS = 8_000
         private const val BUFFER = 4096
+        private const val MAX_PACKET = 1024 * 1024
         const val ACTION_PERMISSION = "com.miunlock.app.ADB_USB_PERMISSION"
     }
 
@@ -210,13 +211,42 @@ class AdbClient(
     private fun read(): Result<AdbPacket> {
         val conn = connection ?: return Result.failure(IllegalStateException("устройство не открыто"))
         val input = epIn ?: return Result.failure(IllegalStateException("нет IN-эндпоинта"))
-        val buffer = ByteArray(BUFFER)
-        val length = conn.bulkTransfer(input, buffer, buffer.size, TIMEOUT_MS)
-        if (length < AdbPacket.HEADER) {
+        // Один bulkTransfer может вернуть меньше, чем просили, поэтому заголовок
+        // и тело дочитываются циклами: иначе поток уезжает на середину пакета.
+        val header = ByteArray(AdbPacket.HEADER)
+        if (!readInto(conn, input, header, 0, AdbPacket.HEADER)) {
             return Result.failure(IllegalStateException("нет ответа от телефона"))
         }
-        val packet = AdbPacket.decode(buffer, length)
+        val size = java.nio.ByteBuffer.wrap(header, 16, 4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
+        if (size < 0 || size > MAX_PACKET) {
+            return Result.failure(IllegalStateException("битый пакет ADB: длина $size"))
+        }
+        val full = ByteArray(AdbPacket.HEADER + size)
+        header.copyInto(full)
+        if (size > 0 && !readInto(conn, input, full, AdbPacket.HEADER, size)) {
+            return Result.failure(IllegalStateException("пакет ADB не дочитан"))
+        }
+        val packet = AdbPacket.decode(full, full.size)
             ?: return Result.failure(IllegalStateException("битый пакет ADB"))
         return Result.success(packet)
+    }
+
+    /** Читает ровно [count] байт в [dest] начиная с [offset]; false — таймаут. */
+    private fun readInto(
+        conn: UsbDeviceConnection,
+        input: UsbEndpoint,
+        dest: ByteArray,
+        offset: Int,
+        count: Int,
+    ): Boolean {
+        var done = 0
+        while (done < count) {
+            val chunk = minOf(BUFFER, count - done)
+            val read = conn.bulkTransfer(input, dest, offset + done, chunk, TIMEOUT_MS)
+            if (read <= 0) return false
+            done += read
+        }
+        return true
     }
 }

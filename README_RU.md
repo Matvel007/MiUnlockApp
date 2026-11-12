@@ -5,7 +5,7 @@
 **Приложение для заявки на разблокировку загрузчика Xiaomi и самой разблокировки с телефона.**
 
 [![English](https://img.shields.io/badge/README-English-ff6900)](README.md)
-[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.3-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Версия](https://img.shields.io/badge/%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F-1.4-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 
@@ -18,8 +18,7 @@
   <img src="Screenshots/Меню%20выбора%20режима.png" width="160" alt="Меню выбора режима">
   <img src="Screenshots/Разблокировка%20загрузчика.png" width="160" alt="Разблокировка загрузчика">
   <img src="Screenshots/Настройки%20разблокировки.png" width="160" alt="Настройки разблокировки">
-  <img src="Screenshots/Главное%20меню.jpg" width="160" alt="Подача заявки">
-  <img src="Screenshots/Настройки.jpg" width="160" alt="Настройки">
+  <img src="Screenshots/Подача%20заявки.png" width="160" alt="Подача заявки">
 </div>
 
 ## Возможности

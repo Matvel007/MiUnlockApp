@@ -91,13 +91,25 @@ data class UnlockUiState(
     val product: String = "",
     val tokenLength: Int = 0,
     val running: Boolean = false,
+    /** Идёт переход в fastboot через ADB — второй запуск запрещён. */
+    val switching: Boolean = false,
     val step: UnlockStep? = null,
     val status: Bilingual = Bilingual("", ""),
     val error: String? = null,
+    /** Код ответа сервера, если он был: 10005, 20036 и т. п. */
+    val errorCode: Int? = null,
+    /** Сколько часов ждать, если сервер назвал срок в тексте отказа. */
+    val waitHours: Int? = null,
     val confirm: ClearConfirm? = null,
 ) {
     data class ClearConfirm(val cleanOrNot: Boolean, val notice: String)
 }
+
+private val HOURS = Regex("""(?<!\d)(\d{1,4})(?!\d)\s*(?:hour|hr|час)""", RegexOption.IGNORE_CASE)
+
+/** Срок ожидания из текста ответа сервера: «wait 71 hours», «71 час». */
+internal fun waitHoursIn(message: String): Int? =
+    HOURS.find(message)?.groupValues?.getOrNull(1)?.toIntOrNull()?.takeIf { it in 1..10_000 }
 
 class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -164,6 +176,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 device = null,
                 deviceLabel = "",
                 error = null,
+                errorCode = null,
+                waitHours = null,
                 status = Bilingual("Устройство не найдено", "No device found"),
             )
             DebugLog.add(t("Разблокировка: устройств в fastboot не найдено", "Unlock: no fastboot devices found"))
@@ -182,7 +196,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     fun clearError() {
-        state = state.copy(error = null)
+        state = state.copy(error = null, errorCode = null, waitHours = null)
     }
 
     /**
@@ -191,7 +205,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
      * подключении телефон спросит разрешение на своём экране.
      */
     fun rebootToFastboot() {
-        if (state.running) return
+        // Один ADB-канал: второй параллельный запуск подрался бы за него же.
+        if (state.running || state.switching) return
         val found = adb.candidates()
         if (found.isEmpty()) {
             val alreadyFastboot = usb.candidates().isNotEmpty()
@@ -199,8 +214,8 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 error = null,
                 status = if (alreadyFastboot) {
                     Bilingual(
-                        "Телефон уже в fastboot — нажмите «Найти устройство»",
-                        "The phone is already in fastboot — tap “Find device”",
+                        "Телефон уже в fastboot — нажмите «НАЙТИ»",
+                        "The phone is already in fastboot — tap “FIND”",
                     )
                 } else {
                     Bilingual(
@@ -213,11 +228,16 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             return
         }
         val device = found.first()
-        state = state.copy(error = null, status = Bilingual("Готовлю переход в fastboot…", "Preparing to boot into fastboot…"))
+        state = state.copy(
+            error = null,
+            switching = true,
+            status = Bilingual("Готовлю переход в fastboot…", "Preparing to boot into fastboot…"),
+        )
         viewModelScope.launch {
             val granted = awaitPermission(device)
             if (!granted) {
                 state = state.copy(
+                    switching = false,
                     error = t("Нет доступа к USB-устройству", "No USB permission"),
                     status = Bilingual("Доступ к USB отклонён", "USB access denied"),
                 )
@@ -235,6 +255,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 onSuccess = {
                     DebugLog.add(t("Разблокировка: телефон переведён в fastboot", "Unlock: phone rebooted into fastboot"))
                     state = state.copy(
+                        switching = false,
                         status = Bilingual(
                             "Телефон перезагружается в fastboot, подождите…",
                             "The phone is rebooting into fastboot, please wait…",
@@ -249,15 +270,17 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                         }
                     }
                     state = state.copy(
+                        switching = false,
                         status = Bilingual(
-                            "Не дождался fastboot — нажмите «Найти устройство»",
-                            "Fastboot did not appear — tap “Find device”",
+                            "Не дождался fastboot — нажмите «НАЙТИ»",
+                            "Fastboot did not appear — tap “FIND”",
                         ),
                     )
                 },
                 onFailure = { error ->
                     DebugLog.add(t("Разблокировка: ADB ошибка — ", "Unlock: ADB error — ") + (error.message ?: "?"))
                     state = state.copy(
+                        switching = false,
                         error = error.message,
                         status = Bilingual(
                             "Не удалось перевести в fastboot",
@@ -295,7 +318,13 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         }
         if (state.running) return
 
-        state = state.copy(running = true, error = null, status = Bilingual("Подготовка…", "Preparing…"))
+        state = state.copy(
+            running = true,
+            error = null,
+            errorCode = null,
+            waitHours = null,
+            status = Bilingual("Подготовка…", "Preparing…"),
+        )
         DebugLog.add(t("Разблокировка: старт", "Unlock: started"))
 
         viewModelScope.launch {
@@ -337,6 +366,10 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                     running = false,
                     status = Bilingual("Остановлено на шаге ${outcome.step.name}", "Stopped at ${outcome.step.name}"),
                     error = outcome.message,
+                    errorCode = outcome.code,
+                    // Сервер называет срок прямо в тексте: «you can unlock in 71 hours».
+                    // Вытаскиваем его, чтобы показать человеку часы, а не простыню.
+                    waitHours = waitHoursIn(outcome.message),
                 )
             }
             DebugLog.add(t("Разблокировка: ", "Unlock: ") + state.status.pick(lang))
@@ -348,423 +381,29 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
     val vm: UnlockViewModel = viewModel()
     val context = LocalContext.current
-    var showConsole by remember { mutableStateOf(false) }
-    var showSettings by remember { mutableStateOf(false) }
-
-    BackHandler(enabled = true) {
-        when {
-            showConsole -> showConsole = false
-            showSettings -> showSettings = false
-            else -> onBack()
-        }
-    }
-
     val language = LocalLanguage.current
     LaunchedEffect(language) {
         vm.setLanguage(language)
         vm.refreshSession()
     }
-
-    val s = vm.state
-
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            if (showConsole) {
-                ConsoleScreen(onBack = { showConsole = false })
-                return@Box
-            }
-            if (showSettings) {
-                UnlockSettingsScreen(
-                    state = s,
-                    language = language,
-                    onBack = { showSettings = false },
-                    onZone = vm::setZone,
-                    onProxy = vm::saveProxy,
-                    onLanguage = onLanguage,
-                    onLogout = { vm.logout(); showSettings = false },
-                )
-                return@Box
-            }
-
-            PaperBackground()
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-            ) {
-                item {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = onBack) { BackArrow() }
-                        Text(tr("Разблокировка", "Unlock"), style = MaterialTheme.typography.displaySmall)
-                        Spacer(Modifier.weight(1f))
-                        IconButton(onClick = { showConsole = true }) {
-                            ConsoleIcon(MaterialTheme.colorScheme.onSurface)
-                        }
-                        IconButton(onClick = { showSettings = true }) { GearIcon() }
-                    }
-                }
-                item {
-                    AccountStateCard(
-                        session = s.session,
-                        onLogin = {
-                            context.startActivity(
-                                Intent(context, com.miunlock.app.auth.MiLoginActivity::class.java)
-                                    .putExtra("mode", "unlock")
-                                    .putExtra("language", language),
-                            )
-                        },
-                    )
-                }
-                item {
-                    DeviceCard(
-                        state = s,
-                        onScan = vm::scanDevice,
-                        onFastboot = vm::rebootToFastboot,
-                        onUnlock = vm::startUnlock,
-                    )
-                }
-                item { InstructionCard() }
-                item { Spacer(Modifier.height(24.dp)) }
-            }
-        }
-    }
-
-    s.confirm?.let { confirm ->
-        AlertDialog(
-            onDismissRequest = { vm.answerConfirm(false) },
-            title = { Text(tr("Подтвердите разблокировку", "Confirm unlock")) },
-            text = {
-                Column {
-                    Text(
-                        if (confirm.cleanOrNot) {
-                            tr("Все данные на устройстве будут стёрты. Это необратимо.", "All data on the device will be erased. This cannot be undone.")
-                        } else {
-                            tr("Данные на устройстве сохранятся.", "Device data will be kept.")
-                        },
-                        fontWeight = FontWeight.Bold,
-                    )
-                    if (confirm.notice.isNotBlank()) {
-                        Spacer(Modifier.height(8.dp))
-                        Text(confirm.notice)
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { vm.answerConfirm(true) }) {
-                    Text(tr("РАЗБЛОКИРОВАТЬ", "UNLOCK"), color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Black)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { vm.answerConfirm(false) }) { Text(tr("ОТМЕНА", "CANCEL")) }
-            },
-        )
-    }
-}
-
-@Composable
-private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
-    SketchCard(container = if (session.isValid) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f) else null) {
-        SectionTitle("01", tr("АККАУНТ", "ACCOUNT"))
-        if (session.isValid) {
-            Text(tr("Вход выполнен", "Signed in"), fontWeight = FontWeight.Black)
-            Text(
-                "uid ${session.userId}",
-                fontFamily = FontFamily.Monospace,
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.secondary,
+    UnlockScreenContent(
+        state = vm.state,
+        language = language,
+        onBack = onBack,
+        onLogin = {
+            context.startActivity(
+                Intent(context, com.miunlock.app.auth.MiLoginActivity::class.java)
+                    .putExtra("mode", "unlock")
+                    .putExtra("language", language),
             )
-            Text(
-                tr("Зона: ${zoneLabel(session.zone)}", "Zone: ${zoneLabel(session.zone)}"),
-                fontSize = 12.sp,
-                color = MaterialTheme.colorScheme.secondary,
-            )
-        } else {
-            Text(
-                tr(
-                    "Для разблокировки нужен вход в Mi Account. Это отдельная сессия — вход из режима заявки здесь не используется.",
-                    "Unlock needs its own Mi Account sign-in. This is a separate session — the sign-in from the application mode is not reused.",
-                ),
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            Spacer(Modifier.height(12.dp))
-            Button(
-                onClick = onLogin,
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
-            ) { Text(tr("ВОЙТИ В MI ACCOUNT", "SIGN IN TO MI ACCOUNT")) }
-        }
-    }
-}
-
-@Composable
-private fun DeviceCard(
-    state: UnlockUiState,
-    onScan: () -> Unit,
-    onFastboot: () -> Unit,
-    onUnlock: () -> Unit,
-) {
-    SketchCard {
-        SectionTitle("02", tr("УСТРОЙСТВО", "DEVICE"))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(44.dp).background(MiOrangeSoft, CircleShape),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    if (state.device != null) "✓" else "?",
-                    color = MiOrange,
-                    fontWeight = FontWeight.Black,
-                    fontSize = 20.sp,
-                )
-            }
-            Spacer(Modifier.width(14.dp))
-            Column(Modifier.weight(1f)) {
-                Text(
-                    state.deviceLabel.ifEmpty { tr("Не подключено", "Not connected") },
-                    fontWeight = FontWeight.Bold,
-                )
-                Text(
-                    tr("Подключите телефон по OTG-кабелю", "Connect the phone with an OTG cable"),
-                    fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.secondary,
-                )
-            }
-        }
-        if (state.product.isNotBlank()) {
-            Spacer(Modifier.height(8.dp))
-            Text("codename: ${state.product}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
-        }
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = onScan,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text(tr("НАЙТИ", "FIND"), maxLines = 1) }
-            OutlinedButton(
-                onClick = onFastboot,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text(tr("В FASTBOOT", "FASTBOOT"), maxLines = 1) }
-        }
-        Spacer(Modifier.height(10.dp))
-        Button(
-            onClick = onUnlock,
-            enabled = !state.running && state.session.isValid && state.device != null,
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
-        ) {
-            if (state.running) {
-                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
-                Spacer(Modifier.width(10.dp))
-                Text(state.status.pick(LocalLanguage.current).ifEmpty { tr("РАЗБЛОКИРОВКА…", "UNLOCKING…") })
-            } else {
-                Text(tr("РАЗБЛОКИРОВАТЬ", "UNLOCK"))
-            }
-        }
-        StatusLine(state)
-    }
-}
-
-@Composable
-private fun StatusLine(state: UnlockUiState) {
-    val language = LocalLanguage.current
-    val color = when {
-        state.error != null -> MaterialTheme.colorScheme.error
-        state.step == UnlockStep.DONE -> Color(0xFF239B56)
-        else -> MaterialTheme.colorScheme.secondary
-    }
-    val text = state.error ?: state.status.pick(language)
-    if (text.isNotBlank()) {
-        Spacer(Modifier.height(8.dp))
-        Text(text, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
-    }
-}
-
-@Composable
-private fun InstructionCard() {
-    SketchCard {
-        SectionTitle("03", tr("ИНСТРУКЦИЯ", "INSTRUCTIONS"))
-        val steps = listOf(
-            tr("Войдите в Mi Account на этом телефоне.", "Sign in to Mi Account on this phone."),
-            tr("Подключите целевой телефон к этому телефону по OTG-кабелю.", "Connect the target phone to this phone with an OTG cable."),
-            tr("Нажмите «В FASTBOOT» — телефон сам уйдёт в загрузчик. Для этого на нём должна быть включена «Отладка по USB»; при первом подключении он спросит разрешение на своём экране.", "Tap “FASTBOOT” — the phone reboots into the bootloader by itself. “USB debugging” must be enabled on it; on the first connection it asks for permission on its own screen."),
-            tr("Если отладка выключена, переведите вручную: выключите телефон и зажмите Громкость− и Питание.", "If debugging is off, do it by hand: power the phone off, then hold Volume Down and Power."),
-            tr("Приложение найдёт устройство само. Если нет — нажмите «НАЙТИ» и разрешите доступ к USB.", "The app finds the device by itself. If not, tap “FIND” and allow USB access."),
-            tr("Нажмите «Разблокировать» и подтвердите стирание данных.", "Tap “Unlock” and confirm the data wipe."),
-        )
-        steps.forEachIndexed { i, line ->
-            Row(Modifier.padding(vertical = 3.dp)) {
-                Text("${i + 1}.", color = MiOrange, fontWeight = FontWeight.Black, modifier = Modifier.width(22.dp))
-                Text(line, style = MaterialTheme.typography.bodyMedium)
-            }
-        }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            tr(
-                "Право на разблокировку выдаёт сервер Xiaomi по аккаунту. Приложение не обходит ограничения и не гарантирует разрешение.",
-                "Unlock permission is granted by Xiaomi for the account. The app does not bypass restrictions and does not guarantee approval.",
-            ),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.secondary,
-        )
-    }
-}
-
-@Composable
-private fun UnlockSettingsScreen(
-    state: UnlockUiState,
-    language: String,
-    onBack: () -> Unit,
-    onZone: (String) -> Unit,
-    onProxy: (ProxySettings) -> Unit,
-    onLanguage: (String) -> Unit,
-    onLogout: () -> Unit,
-) {
-    var host by remember(state.proxy.host) { mutableStateOf(state.proxy.host) }
-    var port by remember(state.proxy.port) { mutableStateOf(state.proxy.port.takeIf { it > 0 }?.toString().orEmpty()) }
-    var user by remember(state.proxy.username) { mutableStateOf(state.proxy.username) }
-    var pass by remember(state.proxy.password) { mutableStateOf(state.proxy.password) }
-
-    Box(Modifier.fillMaxSize()) {
-        PaperBackground()
-        LazyColumn(
-            modifier = Modifier.fillMaxSize(),
-            contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            item {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(tr("Настройки", "Settings"), style = MaterialTheme.typography.displaySmall)
-                    Spacer(Modifier.weight(1f))
-                    TextButton(onClick = onBack) { Text(tr("ГОТОВО", "DONE")) }
-                }
-            }
-            item {
-                SketchCard {
-                    SectionTitle("01", tr("ЯЗЫК", "LANGUAGE"))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                        OutlinedButton(
-                            onClick = { onLanguage("ru") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (language == "ru") MiOrangeSoft else Color.Transparent,
-                            ),
-                        ) { Text("RU", fontWeight = FontWeight.Black) }
-                        OutlinedButton(
-                            onClick = { onLanguage("en") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (language == "en") MiOrangeSoft else Color.Transparent,
-                            ),
-                        ) { Text("EN", fontWeight = FontWeight.Black) }
-                    }
-                }
-            }
-            item {
-                SketchCard {
-                    SectionTitle("02", tr("ЗОНА СЕРВЕРА", "SERVER ZONE"))
-                    Text(
-                        tr("Сервер выбирается по региону аккаунта. Если ответы с ошибкой — попробуйте другую зону.", "The server follows the account region. If requests fail, try another zone."),
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.secondary,
-                    )
-                    Spacer(Modifier.height(10.dp))
-                    val zones = listOf(
-                        UnlockApi.ZONE_SINGAPORE,
-                        UnlockApi.ZONE_CHINA,
-                        UnlockApi.ZONE_RUSSIA,
-                        UnlockApi.ZONE_INDIA,
-                        UnlockApi.ZONE_EUROPE,
-                    )
-                    zones.forEach { z ->
-                        Row(Modifier.fillMaxWidth().padding(vertical = 2.dp)) {
-                            OutlinedButton(
-                                onClick = { onZone(z) },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(14.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(
-                                    containerColor = if (state.session.zone == z) MiOrangeSoft else Color.Transparent,
-                                ),
-                            ) { Text(zoneLabel(z)) }
-                        }
-                    }
-                }
-            }
-            item {
-                SketchCard {
-                    SectionTitle("03", tr("ПРОКСИ ДЛЯ РАЗБЛОКИРОВКИ", "UNLOCK PROXY"))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(
-                            onClick = { onProxy(ProxySettings(type = ProxyType.NONE)) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (state.proxy.type == ProxyType.NONE) MiOrangeSoft else Color.Transparent,
-                            ),
-                        ) { Text(tr("ВЫКЛ", "OFF")) }
-                        OutlinedButton(
-                            onClick = { onProxy(state.proxy.copy(type = ProxyType.HTTP)) },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.outlinedButtonColors(
-                                containerColor = if (state.proxy.type == ProxyType.HTTP) MiOrangeSoft else Color.Transparent,
-                            ),
-                        ) { Text("HTTP") }
-                    }
-                    if (state.proxy.type == ProxyType.HTTP) {
-                        Spacer(Modifier.height(10.dp))
-                        OutlinedTextField(host, { host = it }, label = { Text(tr("IP или хост", "IP or host")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(port, { port = it.filter(Char::isDigit) }, label = { Text(tr("Порт", "Port")) }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.fillMaxWidth())
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(user, { user = it }, label = { Text(tr("Логин", "Username")) }, singleLine = true, modifier = Modifier.fillMaxWidth())
-                        Spacer(Modifier.height(8.dp))
-                        OutlinedTextField(pass, { pass = it }, label = { Text(tr("Пароль", "Password")) }, singleLine = true, visualTransformation = PasswordVisualTransformation(), modifier = Modifier.fillMaxWidth())
-                        Spacer(Modifier.height(10.dp))
-                        Button(
-                            onClick = {
-                                onProxy(
-                                    ProxySettings(
-                                        type = ProxyType.HTTP,
-                                        host = host.trim(),
-                                        port = port.toIntOrNull() ?: 0,
-                                        username = user.trim(),
-                                        password = pass,
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(14.dp),
-                            colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
-                        ) { Text(tr("СОХРАНИТЬ", "SAVE")) }
-                    }
-                }
-            }
-            item {
-                SketchCard {
-                    SectionTitle("04", tr("СЕССИЯ", "SESSION"))
-                    OutlinedButton(
-                        onClick = onLogout,
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(14.dp),
-                    ) { Text(tr("ВЫЙТИ ИЗ АККАУНТА", "SIGN OUT")) }
-                }
-            }
-            item { Spacer(Modifier.height(24.dp)) }
-        }
-    }
-}
-
-@Composable
-fun zoneLabel(zone: String): String = when (zone) {
-    UnlockApi.ZONE_CHINA -> tr("Китай", "China")
-    UnlockApi.ZONE_RUSSIA -> tr("Россия", "Russia")
-    UnlockApi.ZONE_INDIA -> tr("Индия", "India")
-    UnlockApi.ZONE_EUROPE -> tr("Европа", "Europe")
-    else -> tr("Сингапур", "Singapore")
+        },
+        onScan = vm::scanDevice,
+        onFastboot = vm::rebootToFastboot,
+        onUnlock = vm::startUnlock,
+        onAnswerConfirm = vm::answerConfirm,
+        onZone = vm::setZone,
+        onProxy = vm::saveProxy,
+        onLanguage = onLanguage,
+        onLogout = vm::logout,
+    )
 }

@@ -18,8 +18,7 @@
   <img src="Screenshots/Меню%20выбора%20режима.png" width="160" alt="Mode selection">
   <img src="Screenshots/Разблокировка%20загрузчика.png" width="160" alt="Bootloader unlock">
   <img src="Screenshots/Настройки%20разблокировки.png" width="160" alt="Unlock settings">
-  <img src="Screenshots/main.jpg" width="160" alt="Application mode">
-  <img src="Screenshots/settings.jpg" width="160" alt="Settings screen">
+  <img src="Screenshots/Подача%20заявки.png" width="160" alt="Application">
 </div>
 
 ## What It Does

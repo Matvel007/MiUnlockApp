@@ -104,7 +104,7 @@ fun SectionTitle(number: String, title: String) {
 
 /** Живая волнистая линия — разделитель. */
 @Composable
-fun DoodleDivider(modifier: Modifier = Modifier.width(20.dp), height: Int = 64) {
+fun DoodleDivider(modifier: Modifier = Modifier, height: Int = 64) {
     val outlineColor = MaterialTheme.colorScheme.outline.copy(alpha = .55f)
     val transition = rememberInfiniteTransition(label = "divider")
     val phase by transition.animateFloat(
@@ -113,7 +113,7 @@ fun DoodleDivider(modifier: Modifier = Modifier.width(20.dp), height: Int = 64) 
         animationSpec = infiniteRepeatable(tween(1700, easing = LinearEasing)),
         label = "wavePhase",
     )
-    Canvas(modifier.height(height.dp)) {
+    Canvas(modifier.width(20.dp).height(height.dp)) {
         val x = size.width / 2
         val path = Path().apply {
             moveTo(x, 0f)
