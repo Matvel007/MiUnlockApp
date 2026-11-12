@@ -64,9 +64,9 @@ class AdbClient(
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
             if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
-            // Fastboot отличается от ADB только протоколом/PID. Если этого не
+            // Fastboot отличается от ADB протоколом интерфейса. Если этого не
             // учитывать, в загрузчик уходит ADB-пакет и «телефон молчит».
-            if (UsbDeviceKind.isAdb(intf.interfaceProtocol, dev.vendorId, dev.productId)) return true
+            if (UsbDeviceKind.canBeAdb(intf.interfaceProtocol)) return true
         }
         return false
     }
@@ -75,7 +75,7 @@ class AdbClient(
     fun isInFastboot(dev: UsbDevice): Boolean {
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
-            if (UsbDeviceKind.isFastboot(intf.interfaceProtocol, dev.vendorId, dev.productId)) return true
+            if (UsbDeviceKind.of(intf.interfaceProtocol) == UsbDeviceKind.Kind.FASTBOOT) return true
         }
         return false
     }
@@ -165,7 +165,6 @@ class AdbClient(
                 conn.close()
                 return Result.failure(IllegalStateException("интерфейс занят другим приложением"))
             }
-            conn.setInterface(intf)
             // После claim на эндпоинтах может висеть halt от прошлого хозяина:
             // тогда запись уходит в никуда, а чтение сразу отдаёт ошибку.
             clearHalt(conn, input)
@@ -323,10 +322,25 @@ class AdbClient(
         val conn = connection ?: return Result.failure(IllegalStateException("устройство не открыто"))
         val out = epOut ?: return Result.failure(IllegalStateException("нет OUT-эндпоинта"))
         var offset = 0
+        var lastError = 0
         while (offset < bytes.size) {
             val chunk = minOf(AdbPacket.MAX_DATA, bytes.size - offset)
-            val sent = conn.bulkTransfer(out, bytes.copyOfRange(offset, offset + chunk), chunk, TIMEOUT_MS)
-            if (sent <= 0) return Result.failure(IllegalStateException("пакет не отправлен"))
+            // Запись может не пройти с первого раза: интерфейс только что захвачен,
+            // телефон мог не успеть. Три попытки, прежде чем объявить провал.
+            var sent = -1
+            for (attempt in 1..3) {
+                sent = conn.bulkTransfer(out, bytes.copyOfRange(offset, offset + chunk), chunk, TIMEOUT_MS)
+                if (sent > 0) break
+                lastError = sent
+                log("ADB запись не прошла (попытка $attempt, код $sent)")
+                clearHalt(conn, out)
+                Thread.sleep(120)
+            }
+            if (sent <= 0) {
+                return Result.failure(
+                    IllegalStateException("запись в USB не прошла (код $lastError): телефон занял интерфейс"),
+                )
+            }
             offset += sent
         }
         return Result.success(Unit)

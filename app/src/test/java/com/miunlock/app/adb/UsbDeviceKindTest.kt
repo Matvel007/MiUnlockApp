@@ -1,46 +1,48 @@
 package com.miunlock.app.adb
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Различение ADB и fastboot. На живом телефоне ошибка здесь выглядела так:
- * телефон уже в загрузчике, а приложение шлёт ADB-пакет и получает «не отвечает».
+ * Режим устройства определяется только протоколом интерфейса — без таблиц
+ * моделей, чтобы новые телефоны работали сразу.
  */
 class UsbDeviceKindTest {
 
     @Test
-    fun `fastboot по протоколу`() {
-        assertTrue(UsbDeviceKind.isFastboot(0x03, 0x2717, 0x1234))
+    fun `протокол 01 это ADB`() {
+        assertEquals(UsbDeviceKind.Kind.ADB, UsbDeviceKind.of(0x01))
+        assertTrue(UsbDeviceKind.canBeAdb(0x01))
+        assertFalse(UsbDeviceKind.canBeFastboot(0x01))
     }
 
     @Test
-    fun `fastboot по известному PID даже с протоколом ADB`() {
-        // Именно этот случай пришёл с Poco F3: 18D1:4EE7, протокол 0x01.
-        assertTrue(UsbDeviceKind.isFastboot(0x01, 0x18D1, 0x4EE7))
-        assertFalse(UsbDeviceKind.isAdb(0x01, 0x18D1, 0x4EE7))
+    fun `протокол 03 это fastboot`() {
+        assertEquals(UsbDeviceKind.Kind.FASTBOOT, UsbDeviceKind.of(0x03))
+        assertTrue(UsbDeviceKind.canBeFastboot(0x03))
+        assertFalse(UsbDeviceKind.canBeAdb(0x03))
     }
 
     @Test
-    fun `обычный ADB распознаётся как ADB`() {
-        assertTrue(UsbDeviceKind.isAdb(0x01, 0x2717, 0x2717))
-        assertFalse(UsbDeviceKind.isFastboot(0x01, 0x2717, 0x2717))
+    fun `неизвестный протокол подходит для обеих попыток`() {
+        assertEquals(UsbDeviceKind.Kind.UNKNOWN, UsbDeviceKind.of(0x00))
+        assertTrue(UsbDeviceKind.canBeAdb(0x00))
+        assertTrue(UsbDeviceKind.canBeFastboot(0x00))
     }
 
     @Test
-    fun `незнакомый PID с протоколом fastboot`() {
-        assertTrue(UsbDeviceKind.isFastboot(0x03, 0x1234, 0x5678))
+    fun `любой протокол кроме 03 годится для ADB`() {
+        assertTrue(UsbDeviceKind.canBeAdb(0x00))
+        assertTrue(UsbDeviceKind.canBeAdb(0x02))
+        assertTrue(UsbDeviceKind.canBeAdb(0xFE))
     }
 
     @Test
-    fun `незнакомый PID с протоколом ноль не считается ни тем ни другим`() {
-        assertFalse(UsbDeviceKind.isAdb(0x00, 0x1234, 0x5678))
-        assertFalse(UsbDeviceKind.isFastboot(0x00, 0x1234, 0x5678))
-    }
-
-    @Test
-    fun `известный fastboot PID у неизвестного вендора не считается fastboot`() {
-        assertFalse(UsbDeviceKind.isFastboot(0x01, 0x9999, 0x4EE7))
+    fun `любой протокол кроме 01 годится для fastboot`() {
+        assertTrue(UsbDeviceKind.canBeFastboot(0x00))
+        assertTrue(UsbDeviceKind.canBeFastboot(0x02))
+        assertTrue(UsbDeviceKind.canBeFastboot(0xFE))
     }
 }

@@ -30,9 +30,6 @@ class FastbootUsb(private val context: Context) {
         const val SUBCLASS = 0x42
         const val PROTOCOL = 0x03
 
-        const val VID_XIAOMI = 0x2717
-        const val VID_GOOGLE = 0x18D1
-        const val VID_QUALCOMM = 0x05C6
 
         const val TIMEOUT_CMD = 5_000
         const val TIMEOUT_DATA = 30_000
@@ -63,10 +60,7 @@ class FastbootUsb(private val context: Context) {
             val intf = dev.getInterface(i)
             if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
             // Часть прошивок отдаёт fastboot с протоколом 0x00/0x01 — узнаём по PID.
-            if (com.miunlock.app.adb.UsbDeviceKind.isFastboot(
-                    intf.interfaceProtocol, dev.vendorId, dev.productId,
-                )
-            ) {
+            if (com.miunlock.app.adb.UsbDeviceKind.canBeFastboot(intf.interfaceProtocol)) {
                 return true
             }
         }
@@ -74,9 +68,6 @@ class FastbootUsb(private val context: Context) {
     }
 
     /** Похоже ли на fastboot по VID, если интерфейс ещё не разобран системой. */
-    fun looksLikeFastbootVendor(dev: UsbDevice): Boolean =
-        dev.vendorId == VID_XIAOMI || dev.vendorId == VID_GOOGLE || dev.vendorId == VID_QUALCOMM
-
     fun hasPermission(dev: UsbDevice): Boolean = usb.hasPermission(dev)
 
     /**

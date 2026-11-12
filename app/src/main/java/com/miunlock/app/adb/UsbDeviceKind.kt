@@ -1,38 +1,40 @@
 package com.miunlock.app.adb
 
 /**
- * Какой режим у подключённого телефона.
+ * Режим подключённого телефона.
  *
- * У ADB и fastboot одинаковый класс интерфейса (`0xFF/0x42`), поэтому по
- * классу их не различить: признак — протокол интерфейса и известные PID.
- * Путаница здесь дорого стоит: ADB-пакет, отправленный в fastboot, просто
- * не уходит, и это выглядит как «телефон не отвечает».
+ * ADB и fastboot объявляют одинаковый класс интерфейса (`0xFF/0x42`), поэтому
+ * по классу их не различить. Различает их протокол интерфейса, и это штатный
+ * признак из USB-дескриптора, а не таблица моделей:
+ *
+ * - `0x01` — ADB (обычная система с включённой отладкой);
+ * - `0x03` — fastboot (загрузчик);
+ * - `0x00` — прошивка протокол не назвала, режим неизвестен.
+ *
+ * Таблицы VID/PID здесь намеренно нет: она не покроет новые устройства,
+ * а ошибка в ней дорога — fastboot, принятый за ADB, вообще не отвечает.
  */
 object UsbDeviceKind {
 
     const val PROTOCOL_ADB = 0x01
     const val PROTOCOL_FASTBOOT = 0x03
 
-    const val VID_GOOGLE = 0x18D1
-    const val VID_XIAOMI = 0x2717
-    const val VID_QUALCOMM = 0x05C6
-
-    /**
-     * PID, которые телефон показывает именно в загрузчике.
-     * `0x4EE7` — стандартный fastboot Google (его же отдают многие Xiaomi),
-     * `0x0FFF` — fastboot Xiaomi, `0xD00D` — режим EDL Qualcomm.
-     */
-    private val FASTBOOT_PIDS = setOf(0x4EE7, 0x0FFF, 0xD00D, 0x4EE2)
-
-    fun isFastboot(protocol: Int, vendorId: Int, productId: Int): Boolean {
-        if (protocol == PROTOCOL_FASTBOOT) return true
-        // Некоторые прошивки отдают fastboot с протоколом 0x00 или 0x01:
-        // тогда единственный признак — известный PID загрузчика.
-        return productId in FASTBOOT_PIDS && vendorId in setOf(VID_GOOGLE, VID_XIAOMI, VID_QUALCOMM)
+    enum class Kind {
+        ADB,
+        FASTBOOT,
+        /** Протокол не указан: режим придётся выяснять попыткой. */
+        UNKNOWN,
     }
 
-    fun isAdb(protocol: Int, vendorId: Int, productId: Int): Boolean {
-        if (isFastboot(protocol, vendorId, productId)) return false
-        return protocol == PROTOCOL_ADB
+    fun of(protocol: Int): Kind = when (protocol) {
+        PROTOCOL_ADB -> Kind.ADB
+        PROTOCOL_FASTBOOT -> Kind.FASTBOOT
+        else -> Kind.UNKNOWN
     }
+
+    /** Интерфейс может быть ADB (точно ADB или неизвестный). */
+    fun canBeAdb(protocol: Int): Boolean = of(protocol) != Kind.FASTBOOT
+
+    /** Интерфейс может быть fastboot (точно fastboot или неизвестный). */
+    fun canBeFastboot(protocol: Int): Boolean = of(protocol) != Kind.ADB
 }
