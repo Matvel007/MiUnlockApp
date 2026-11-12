@@ -95,9 +95,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.KeyboardType
@@ -184,9 +182,9 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                item { Header(onHome = onHome, onConsole = { showConsole = true }, onGitHub = {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Matvel007/MiUnlockApp")))
-                }) }
+                item { Header(onHome = onHome, onConsole = { showConsole = true },
+                    onGitHub = { openLink(context, REPO_URL) },
+                    onForum = { openLink(context, FORUM_URL) }) }
                 item { DualClockCard() }
                 item { StatusCard(state) }
                 item { SchedulerCard(state, dispatch) }
@@ -204,14 +202,12 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
 }
 
 @Composable
-private fun Header(onHome: () -> Unit = {}, onConsole: () -> Unit, onGitHub: () -> Unit) {
-    val transition = rememberInfiniteTransition(label = "github")
-    val scale by transition.animateFloat(
-        initialValue = 0.96f,
-        targetValue = 1.04f,
-        animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
-        label = "githubScale",
-    )
+private fun Header(
+    onHome: () -> Unit = {},
+    onConsole: () -> Unit,
+    onGitHub: () -> Unit,
+    onForum: () -> Unit,
+) {
     // Заголовок не пишем: длинное имя не влезает в строку и выдавливает значки.
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onHome) { BackArrow() }
@@ -219,9 +215,8 @@ private fun Header(onHome: () -> Unit = {}, onConsole: () -> Unit, onGitHub: () 
         IconButton(onClick = onConsole) {
             ConsoleIcon(MaterialTheme.colorScheme.onSurface)
         }
-        IconButton(onClick = onGitHub) {
-            Icon(painterResource(R.drawable.ic_github), contentDescription = "GitHub", tint = MaterialTheme.colorScheme.onSurface, modifier = Modifier.size(29.dp).graphicsLayer { scaleX = scale; scaleY = scale })
-        }
+        ForumButton(onClick = onForum)
+        GithubButton(onClick = onGitHub)
     }
 }
 
