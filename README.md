@@ -70,9 +70,9 @@ The app opens with the mode selection screen.
 
 1. Pick **Bootloader unlock**.
 2. Sign in to Mi Account — this is a separate session.
-3. Put the target phone into fastboot (power off, then hold Volume Down and Power).
-4. Connect it to this phone with an OTG cable.
-5. Tap **Find device** and allow USB access.
+3. Connect it to this phone with an OTG cable.
+4. Tap **FASTBOOT** — the phone reboots into the bootloader by itself. If debugging is off, hold Volume Down and Power.
+5. Tap **Find** and allow USB access.
 6. Tap **Unlock** and confirm the data wipe.
 
 ### Unlock application
