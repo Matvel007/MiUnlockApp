@@ -212,9 +212,9 @@ private fun Header(onHome: () -> Unit = {}, onConsole: () -> Unit, onGitHub: () 
         animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
         label = "githubScale",
     )
+    // Заголовок не пишем: длинное имя не влезает в строку и выдавливает значки.
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onHome) { BackArrow() }
-        Text("MiUnlockApp", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onConsole) {
             ConsoleIcon(MaterialTheme.colorScheme.onSurface)

@@ -106,9 +106,9 @@ internal fun UnlockScreenContent(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 item {
+                    // Без заголовка: он не влезает рядом со значками.
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { BackArrow() }
-                        Text(tr("Разблокировка", "Unlock"), style = MaterialTheme.typography.displaySmall)
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = { showConsole = true }) {
                             ConsoleIcon(MaterialTheme.colorScheme.onSurface)
