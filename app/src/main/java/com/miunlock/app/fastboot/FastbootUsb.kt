@@ -22,6 +22,9 @@ import java.nio.charset.StandardCharsets
  * Root не нужен: система даёт приложению файловый дескриптор устройства через
  * [UsbManager] после подтверждения пользователем.
  */
+/** Команда не ушла в устройство целиком: до загрузчика она не дошла. */
+class CommandNotSentException(message: String) : IllegalStateException(message)
+
 class FastbootUsb(private val context: Context) {
 
     companion object {
@@ -50,6 +53,16 @@ class FastbootUsb(private val context: Context) {
 
     val isOpen: Boolean get() = connection != null && epIn != null && epOut != null
     val openDevice: UsbDevice? get() = device
+
+    /**
+     * Устройство всё ещё на шине? После `oem unlock` телефон стирает данные
+     * и уходит в перезагрузку, поэтому ответ может не дойти.
+     */
+    fun isStillConnected(): Boolean {
+        val id = device?.deviceId ?: return false
+        val list = usb.deviceList ?: return false
+        return list.values.any { it.deviceId == id }
+    }
 
     /** Устройства, у которых есть интерфейс fastboot. */
     fun candidates(): List<UsbDevice> {
@@ -188,7 +201,7 @@ class FastbootUsb(private val context: Context) {
         val sent = conn.bulkTransfer(out, cmd, cmd.size, timeoutMs)
         if (sent != cmd.size) {
             DebugLog.error(LogTag.FASTBOOT, "→ $command: запись не прошла, $sent из ${cmd.size}")
-            return Result.failure(IllegalStateException("команда не отправлена: $sent из ${cmd.size}"))
+            return Result.failure(CommandNotSentException("команда не отправлена: $sent из ${cmd.size}"))
         }
         return readUntilFinal(timeoutMs)
     }

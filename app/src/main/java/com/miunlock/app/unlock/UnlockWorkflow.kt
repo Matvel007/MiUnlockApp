@@ -4,6 +4,7 @@ import android.hardware.usb.UsbDevice
 import com.miunlock.app.data.DebugLog
 import com.miunlock.app.data.LogLevel
 import com.miunlock.app.data.LogTag
+import com.miunlock.app.fastboot.CommandNotSentException
 import com.miunlock.app.fastboot.FastbootCodec
 import com.miunlock.app.fastboot.FastbootUsb
 
@@ -20,6 +21,17 @@ data class UnlockProgress(
 )
 
 /** Результат всей операции. */
+/** Ответ `oem unlock`, которого не было: телефон ушёл в перезагрузку. */
+const val DISCONNECTED = "disconnected"
+
+/**
+ * Успех разблокировки. Ответ загрузчика может не дойти: телефон стирает данные
+ * и уходит в перезагрузку. Тогда успех — если ответа нет, а устройство ушло
+ * с шины. Явный `FAIL` и живое устройство успехом не считаются.
+ */
+internal fun unlockSucceeded(reply: Boolean, stillConnected: Boolean): Boolean =
+    reply || !stillConnected
+
 sealed class UnlockOutcome {
     data class Success(val message: String) : UnlockOutcome()
     data class Failure(val step: UnlockStep, val message: String, val code: Int? = null) : UnlockOutcome()
@@ -86,13 +98,49 @@ class FastbootCommands(private val usb: FastbootUsb) {
         }
     }
 
+    /**
+     * `oem unlock` запускает стирание данных и перезагрузку. Телефон успевает
+     * исчезнуть с шины раньше, чем отдаст `OKAY`, — это не ошибка, а признак
+     * того, что разблокировка пошла. Ответ `FAIL` от загрузчика остаётся
+     * ошибкой всегда: там устройство на связи и прямо отказывает.
+     */
     fun oemUnlock(): Result<String> {
-        val res = usb.execute("oem unlock").getOrElse { return Result.failure(it) }
-        return if (res.isOkay) {
-            Result.success(res.payload.ifEmpty { "OKAY" })
-        } else {
-            Result.failure(IllegalStateException("oem unlock: ${res.payload}"))
+        val res = usb.execute("oem unlock")
+        val reply = res.getOrNull()
+        if (reply != null) {
+            return if (reply.isOkay) {
+                Result.success(reply.payload.ifEmpty { "OKAY" })
+            } else {
+                Result.failure(IllegalStateException("oem unlock: ${reply.payload}"))
+            }
         }
+        val error = res.exceptionOrNull()
+        // Команда не ушла — значит до загрузчика она не дошла, и пропажа
+        // устройства тут ничего не доказывает.
+        if (error is CommandNotSentException) {
+            DebugLog.error(LogTag.FASTBOOT, "oem unlock: команда не отправлена — ${error.message}")
+            return Result.failure(error)
+        }
+        val gone = waitUntilDisconnected()
+        if (unlockSucceeded(reply = false, stillConnected = !gone)) {
+            DebugLog.warn(
+                LogTag.FASTBOOT,
+                "oem unlock: ответа нет, устройство ушло с шины — считаю разблокированным" +
+                    " (${error?.message})",
+            )
+            return Result.success(DISCONNECTED)
+        }
+        DebugLog.error(LogTag.FASTBOOT, "oem unlock: ответа нет, устройство на связи — ошибка")
+        return Result.failure(error ?: IllegalStateException("oem unlock: нет ответа"))
+    }
+
+    /** Ждёт до трёх секунд, пока устройство исчезнет с шины. */
+    private fun waitUntilDisconnected(): Boolean {
+        repeat(12) {
+            if (!usb.isStillConnected()) return true
+            Thread.sleep(250)
+        }
+        return !usb.isStillConnected()
     }
 
     fun reboot(): Result<Unit> = usb.execute("reboot").map { }
@@ -263,6 +311,15 @@ class UnlockWorkflow(
             }
 
             step(UnlockStep.DONE, "Готово", "Done")
+            DebugLog.add(
+                LogLevel.INFO,
+                LogTag.APP,
+                if (unlock == DISCONNECTED) {
+                    "oem unlock: телефон ушёл в перезагрузку — разблокировка выполнена"
+                } else {
+                    "oem unlock: загрузчик ответил «$unlock»"
+                },
+            )
             return UnlockOutcome.Success(unlock)
         } catch (error: Throwable) {
             // Любое исключение внутри шага: сеть, разбор ответа, USB.

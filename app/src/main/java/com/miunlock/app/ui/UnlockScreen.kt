@@ -62,6 +62,7 @@ import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.ProxySettings
 import com.miunlock.app.domain.ProxyType
 import com.miunlock.app.fastboot.FastbootUsb
+import com.miunlock.app.unlock.DISCONNECTED
 import com.miunlock.app.unlock.FastbootCommands
 import com.miunlock.app.unlock.UnlockApi
 import com.miunlock.app.unlock.UnlockOutcome
@@ -316,7 +317,14 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             state = when (outcome) {
                 is UnlockOutcome.Success -> state.copy(
                     running = false,
-                    status = Bilingual("Разблокировано", "Unlocked"),
+                    status = if (outcome.message == DISCONNECTED) {
+                        Bilingual(
+                            "Разблокировано — телефон перезагружается",
+                            "Unlocked — the phone is rebooting",
+                        )
+                    } else {
+                        Bilingual("Разблокировано", "Unlocked")
+                    },
                     step = UnlockStep.DONE,
                 )
                 is UnlockOutcome.Cancelled -> state.copy(
