@@ -192,27 +192,31 @@ fun BackArrow() {
     }
 }
 
-/** Шестерёнка настроек: зубцы на ободе плюс отверстие в ступице. */
+/** Шестерёнка настроек: восемь трапециевидных зубцов, обод и отверстие в ступице. */
 @Composable
 fun GearIcon() {
     val color = MaterialTheme.colorScheme.onSurface
     Canvas(Modifier.size(24.dp)) {
         val c = Offset(size.width / 2, size.height / 2)
-        val ring = size.width * 0.28f
-        val toothW = size.width * 0.17f
-        val toothH = size.height * 0.15f
+        val w = size.width
+        val rOuter = w * 0.30f
+        val toothH = w * 0.13f
+        val base = w * 0.26f
+        val top = w * 0.15f
         repeat(8) { i ->
             rotate(i * 45f, c) {
-                drawRoundRect(
-                    color = color,
-                    topLeft = Offset(c.x - toothW / 2, c.y - ring - toothH / 2),
-                    size = Size(toothW, toothH),
-                    cornerRadius = CornerRadius(toothW / 2.6f),
-                )
+                val path = Path().apply {
+                    moveTo(c.x - base / 2, c.y - rOuter)
+                    lineTo(c.x - top / 2, c.y - rOuter - toothH)
+                    lineTo(c.x + top / 2, c.y - rOuter - toothH)
+                    lineTo(c.x + base / 2, c.y - rOuter)
+                    close()
+                }
+                drawPath(path, color)
             }
         }
-        drawCircle(color, radius = ring, center = c, style = Stroke(3.2f))
-        drawCircle(color, radius = size.width * 0.11f, center = c, style = Stroke(2.4f))
+        drawCircle(color, radius = rOuter - w * 0.03f, center = c, style = Stroke(w * 0.13f))
+        drawCircle(color, radius = w * 0.085f, center = c, style = Stroke(w * 0.075f))
     }
 }
 

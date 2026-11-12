@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.miunlock.app.adb.AdbClient
 import com.miunlock.app.data.DebugLog
 import com.miunlock.app.domain.ProxySettings
 import com.miunlock.app.domain.ProxyType
@@ -68,6 +69,9 @@ import com.miunlock.app.unlock.UnlockWorkflow
 import com.miunlock.app.ui.theme.MiOrange
 import com.miunlock.app.ui.theme.MiOrangeSoft
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -99,6 +103,7 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = UnlockStore(app)
     private val usb = FastbootUsb(app)
+    private val adb = AdbClient(app, java.io.File(app.filesDir, "adb"))
 
     var state by mutableStateOf(UnlockUiState())
         private set
@@ -179,6 +184,97 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     fun clearError() {
         state = state.copy(error = null)
     }
+
+    /**
+     * Переводит подключённый телефон в fastboot через ADB, чтобы не заставлять
+     * человека зажимать кнопки. Нужна включённая отладка по USB; при первом
+     * подключении телефон спросит разрешение на своём экране.
+     */
+    fun rebootToFastboot() {
+        if (state.running) return
+        val found = adb.candidates()
+        if (found.isEmpty()) {
+            val alreadyFastboot = usb.candidates().isNotEmpty()
+            state = state.copy(
+                error = null,
+                status = if (alreadyFastboot) {
+                    Bilingual(
+                        "Телефон уже в fastboot — нажмите «Найти устройство»",
+                        "The phone is already in fastboot — tap “Find device”",
+                    )
+                } else {
+                    Bilingual(
+                        "Телефон не найден. Включите «Отладку по USB» или переведите в fastboot кнопками",
+                        "Phone not found. Enable “USB debugging” or enter fastboot with the buttons",
+                    )
+                },
+            )
+            DebugLog.add(t("Разблокировка: нет устройства с отладкой", "Unlock: no device with USB debugging"))
+            return
+        }
+        val device = found.first()
+        state = state.copy(error = null, status = Bilingual("Готовлю переход в fastboot…", "Preparing to boot into fastboot…"))
+        viewModelScope.launch {
+            val granted = awaitPermission(device)
+            if (!granted) {
+                state = state.copy(
+                    error = t("Нет доступа к USB-устройству", "No USB permission"),
+                    status = Bilingual("Доступ к USB отклонён", "USB access denied"),
+                )
+                return@launch
+            }
+            val result = withContext(Dispatchers.IO) {
+                runCatching {
+                    adb.open(device).getOrThrow()
+                    adb.connect().getOrThrow()
+                    adb.rebootToBootloader().getOrThrow()
+                }
+            }
+            adb.close()
+            result.fold(
+                onSuccess = {
+                    DebugLog.add(t("Разблокировка: телефон переведён в fastboot", "Unlock: phone rebooted into fastboot"))
+                    state = state.copy(
+                        status = Bilingual(
+                            "Телефон перезагружается в fastboot, подождите…",
+                            "The phone is rebooting into fastboot, please wait…",
+                        ),
+                    )
+                    // Загрузчик поднимается не мгновенно: даём ему время и ищем сами.
+                    repeat(6) {
+                        delay(3_000)
+                        if (usb.candidates().isNotEmpty()) {
+                            scanDevice()
+                            return@launch
+                        }
+                    }
+                    state = state.copy(
+                        status = Bilingual(
+                            "Не дождался fastboot — нажмите «Найти устройство»",
+                            "Fastboot did not appear — tap “Find device”",
+                        ),
+                    )
+                },
+                onFailure = { error ->
+                    DebugLog.add(t("Разблокировка: ADB ошибка — ", "Unlock: ADB error — ") + (error.message ?: "?"))
+                    state = state.copy(
+                        error = error.message,
+                        status = Bilingual(
+                            "Не удалось перевести в fastboot",
+                            "Could not switch to fastboot",
+                        ),
+                    )
+                },
+            )
+        }
+    }
+
+    private suspend fun awaitPermission(device: android.hardware.usb.UsbDevice): Boolean =
+        withContext(Dispatchers.Main) {
+            kotlinx.coroutines.suspendCancellableCoroutine { cont ->
+                adb.requestPermission(device) { granted -> cont.resume(granted) }
+            }
+        }
 
     fun answerConfirm(ok: Boolean) {
         state = state.copy(confirm = null)
@@ -299,7 +395,7 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
                 item {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { BackArrow() }
-                        Text(tr("Разблокировка", "Unlock"), style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Black)
+                        Text(tr("Разблокировка", "Unlock"), style = MaterialTheme.typography.displaySmall)
                         Spacer(Modifier.weight(1f))
                         IconButton(onClick = { showConsole = true }) {
                             ConsoleIcon(MaterialTheme.colorScheme.onSurface)
@@ -323,26 +419,10 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
                     DeviceCard(
                         state = s,
                         onScan = vm::scanDevice,
+                        onFastboot = vm::rebootToFastboot,
+                        onUnlock = vm::startUnlock,
                     )
                 }
-                item {
-                    Button(
-                        onClick = vm::startUnlock,
-                        enabled = !s.running && s.session.isValid && s.device != null,
-                        modifier = Modifier.fillMaxWidth().height(56.dp),
-                        shape = RoundedCornerShape(16.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
-                    ) {
-                        if (s.running) {
-                            CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.5.dp, color = Color.White)
-                            Spacer(Modifier.width(12.dp))
-                            Text(s.status.pick(language).ifEmpty { tr("РАЗБЛОКИРОВКА…", "UNLOCKING…") })
-                        } else {
-                            Text(tr("РАЗБЛОКИРОВАТЬ", "UNLOCK"), fontWeight = FontWeight.Black)
-                        }
-                    }
-                }
-                item { StatusLine(s) }
                 item { InstructionCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
@@ -418,7 +498,12 @@ private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
 }
 
 @Composable
-private fun DeviceCard(state: UnlockUiState, onScan: () -> Unit) {
+private fun DeviceCard(
+    state: UnlockUiState,
+    onScan: () -> Unit,
+    onFastboot: () -> Unit,
+    onUnlock: () -> Unit,
+) {
     SketchCard {
         SectionTitle("02", tr("УСТРОЙСТВО", "DEVICE"))
         Row(verticalAlignment = Alignment.CenterVertically) {
@@ -440,7 +525,7 @@ private fun DeviceCard(state: UnlockUiState, onScan: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                 )
                 Text(
-                    tr("Подключите телефон по OTG в режиме fastboot", "Connect the phone with an OTG cable in fastboot mode"),
+                    tr("Подключите телефон по OTG-кабелю", "Connect the phone with an OTG cable"),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.secondary,
                 )
@@ -451,11 +536,35 @@ private fun DeviceCard(state: UnlockUiState, onScan: () -> Unit) {
             Text("codename: ${state.product}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
         }
         Spacer(Modifier.height(12.dp))
-        OutlinedButton(
-            onClick = onScan,
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(
+                onClick = onScan,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(tr("НАЙТИ", "FIND"), maxLines = 1) }
+            OutlinedButton(
+                onClick = onFastboot,
+                modifier = Modifier.weight(1f),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(tr("В FASTBOOT", "FASTBOOT"), maxLines = 1) }
+        }
+        Spacer(Modifier.height(10.dp))
+        Button(
+            onClick = onUnlock,
+            enabled = !state.running && state.session.isValid && state.device != null,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(14.dp),
-        ) { Text(tr("НАЙТИ УСТРОЙСТВО", "FIND DEVICE")) }
+            colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
+        ) {
+            if (state.running) {
+                CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp, color = Color.White)
+                Spacer(Modifier.width(10.dp))
+                Text(state.status.pick(LocalLanguage.current).ifEmpty { tr("РАЗБЛОКИРОВКА…", "UNLOCKING…") })
+            } else {
+                Text(tr("РАЗБЛОКИРОВАТЬ", "UNLOCK"))
+            }
+        }
+        StatusLine(state)
     }
 }
 
@@ -469,6 +578,7 @@ private fun StatusLine(state: UnlockUiState) {
     }
     val text = state.error ?: state.status.pick(language)
     if (text.isNotBlank()) {
+        Spacer(Modifier.height(8.dp))
         Text(text, color = color, fontWeight = FontWeight.Bold, modifier = Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
     }
 }
@@ -479,10 +589,11 @@ private fun InstructionCard() {
         SectionTitle("03", tr("ИНСТРУКЦИЯ", "INSTRUCTIONS"))
         val steps = listOf(
             tr("Войдите в Mi Account на этом телефоне.", "Sign in to Mi Account on this phone."),
-            tr("Переведите целевой телефон в fastboot: выключите и зажмите Громкость− и Питание.", "Put the target phone into fastboot: power it off, then hold Volume Down and Power."),
-            tr("Подключите его к этому телефону через OTG-кабель.", "Connect it to this phone with an OTG cable."),
-            tr("Нажмите «Найти устройство» и разрешите доступ к USB.", "Tap “Find device” and allow USB access."),
-            tr("Нажмите «Разблокировать» и подтвердите стирание данных.", "Tap “Unlock” and confirm data wipe."),
+            tr("Подключите целевой телефон к этому телефону по OTG-кабелю.", "Connect the target phone to this phone with an OTG cable."),
+            tr("Нажмите «В FASTBOOT» — телефон сам уйдёт в загрузчик. Для этого на нём должна быть включена «Отладка по USB»; при первом подключении он спросит разрешение на своём экране.", "Tap “FASTBOOT” — the phone reboots into the bootloader by itself. “USB debugging” must be enabled on it; on the first connection it asks for permission on its own screen."),
+            tr("Если отладка выключена, переведите вручную: выключите телефон и зажмите Громкость− и Питание.", "If debugging is off, do it by hand: power the phone off, then hold Volume Down and Power."),
+            tr("Приложение найдёт устройство само. Если нет — нажмите «НАЙТИ» и разрешите доступ к USB.", "The app finds the device by itself. If not, tap “FIND” and allow USB access."),
+            tr("Нажмите «Разблокировать» и подтвердите стирание данных.", "Tap “Unlock” and confirm the data wipe."),
         )
         steps.forEachIndexed { i, line ->
             Row(Modifier.padding(vertical = 3.dp)) {
@@ -538,7 +649,7 @@ private fun UnlockSettingsScreen(
                         OutlinedButton(
                             onClick = { onLanguage("ru") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (language == "ru") MiOrangeSoft else Color.Transparent,
                             ),
@@ -546,7 +657,7 @@ private fun UnlockSettingsScreen(
                         OutlinedButton(
                             onClick = { onLanguage("en") },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (language == "en") MiOrangeSoft else Color.Transparent,
                             ),
@@ -575,7 +686,7 @@ private fun UnlockSettingsScreen(
                             OutlinedButton(
                                 onClick = { onZone(z) },
                                 modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp),
+                                shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.outlinedButtonColors(
                                     containerColor = if (state.session.zone == z) MiOrangeSoft else Color.Transparent,
                                 ),
@@ -591,7 +702,7 @@ private fun UnlockSettingsScreen(
                         OutlinedButton(
                             onClick = { onProxy(ProxySettings(type = ProxyType.NONE)) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (state.proxy.type == ProxyType.NONE) MiOrangeSoft else Color.Transparent,
                             ),
@@ -599,7 +710,7 @@ private fun UnlockSettingsScreen(
                         OutlinedButton(
                             onClick = { onProxy(state.proxy.copy(type = ProxyType.HTTP)) },
                             modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(14.dp),
                             colors = ButtonDefaults.outlinedButtonColors(
                                 containerColor = if (state.proxy.type == ProxyType.HTTP) MiOrangeSoft else Color.Transparent,
                             ),

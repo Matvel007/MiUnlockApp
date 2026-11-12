@@ -9,7 +9,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.miunlock.app.BuildConfig
-import com.miunlock.app.MiUnlockScreen
 import com.miunlock.app.domain.AppIntent
 import com.miunlock.app.domain.AppState
 
