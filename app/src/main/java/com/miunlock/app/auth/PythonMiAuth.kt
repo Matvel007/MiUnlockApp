@@ -102,16 +102,29 @@ class PythonMiAuth(context: Context) {
     /** Полный набор данных сервисной сессии — нужен режиму разблокировки. */
     suspend fun exchangeFull(sid: String): ServiceLogin {
         val result = call("exchange", sid)
-        // Диагностика обмена: какие поля сервис вернул и какие cookies ушли.
+        // Диагностика обмена: какие варианты запроса пробовали и что ответил сервер.
         result.optJSONObject("debug")?.let { d ->
+            val attempts = d.optJSONArray("attempts")?.let { arr ->
+                (0 until arr.length()).joinToString("; ") { i ->
+                    val a = arr.optJSONObject(i)
+                    if (a == null) "" else {
+                        "${a.optString("variant")}: код ${a.opt("code")} " +
+                            "nonce ${a.optBoolean("nonce")} ssecurity ${a.optBoolean("ssecurity")} " +
+                            "result ${a.opt("result")}"
+                    }
+                }
+            }.orEmpty()
             DebugLog.add(
                 LogLevel.INFO,
                 LogTag.AUTH,
-                "обмен $sid: код ${d.opt("code")}, ключ ${d.optString("keySource")}, " +
-                    "nonce ${d.optBoolean("hasNonce")}, ssecurity ${d.optBoolean("hasSsecurity")}, " +
-                    "location ${d.optBoolean("hasLocation")}, cookies ${d.opt("cookies")}, " +
-                    "поля ${d.optJSONArray("keys")?.let { a -> List(a.length()) { a.optString(it) } }}",
+                "обмен $sid: ключ ${d.optString("keySource")}, cookies ${d.opt("cookies")} | $attempts",
             )
+            if (!d.optBoolean("hasNonce")) {
+                DebugLog.warn(
+                    LogTag.AUTH,
+                    "поля ответа: ${d.optJSONArray("keys")?.let { a -> List(a.length()) { a.optString(it) } }}",
+                )
+            }
         }
         requireOk(result)
         val cookies = result.optJSONObject("cookies")?.let { obj ->

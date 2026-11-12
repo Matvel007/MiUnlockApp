@@ -138,56 +138,71 @@ def exchange(sid):
     required = {key: cookies.get(key) for key in ("deviceId", "passToken", "userId")}
     if not all(required.values()):
         return _reply({"ok": False, "error": _message("Xiaomi не выдал passToken, userId или deviceId", "Xiaomi did not provide passToken, userId or deviceId")})
-    service = requests.Session()
-    service.headers.update(session.headers)
-    # Переносим cookies вместе с их доменами: так же, как это делает
-    # проверенная реализация. Без домена cookie может не уйти на account.xiaomi.com.
-    service.cookies.update(session.cookies)
 
-    # checkSafeAddress — обязательный параметр сервисного входа: без него
-    # Xiaomi отвечает «успешно», но без nonce/ssecurity, и подписывать
-    # запросы становится нечем.
-    first = _json(service.get(
-        SERVICE_LOGIN,
-        params={"sid": sid, "checkSafeAddress": "true", "_json": True},
-    ))
-    nonce, ssecurity, location = first.get("nonce"), first.get("ssecurity"), first.get("location")
+    def attempt(cookie_set, safe):
+        """Один запрос serviceLogin. Возвращает (ответ, сессия)."""
+        client = requests.Session()
+        client.headers.update(session.headers)
+        # Без домена — так cookie уходит на любой хост Xiaomi. Проверенная
+        # реализация делает именно так: домены после цепочки редиректов
+        # могут не совпасть, и тогда сессия «не узнаётся».
+        for key, value in cookie_set.items():
+            client.cookies.set(key, value)
+        params = {"sid": sid, "_json": True}
+        if safe:
+            params["checkSafeAddress"] = "true"
+        return _json(client.get(SERVICE_LOGIN, params=params)), client
 
-    # Если сервис не отдал ключ, берём его у passport: это тот же аккаунт,
-    # и ключ подписи у него общий. В журнал пишется, какой путь сработал.
-    key_source = sid
-    if not nonce or not ssecurity:
-        passport = _json(service.get(
-            SERVICE_LOGIN,
-            params={"sid": "passport", "checkSafeAddress": "true", "_json": True},
-        ))
-        if passport.get("nonce") and passport.get("ssecurity"):
-            nonce = passport.get("nonce")
-            ssecurity = passport.get("ssecurity")
-            location = location or passport.get("location")
-            key_source = "passport"
+    # Сервис по-разному реагирует на набор cookies и на checkSafeAddress:
+    # в одних случаях нужен полный набор, в других — только три ключа.
+    # Перебираем и записываем, что ответил каждый вариант.
+    variants = [
+        ("3+safe", required, True),
+        ("all+safe", cookies, True),
+        ("3", required, False),
+        ("all", cookies, False),
+    ]
+    attempts = []
+    first, client, key_source = None, None, sid
+    nonce = ssecurity = location = None
+    for name, cookie_set, safe in variants:
+        answer, probe = attempt(cookie_set, safe)
+        attempts.append({
+            "variant": name,
+            "code": answer.get("code"),
+            "nonce": bool(answer.get("nonce")),
+            "ssecurity": bool(answer.get("ssecurity")),
+            "location": bool(answer.get("location")),
+            "result": answer.get("result"),
+        })
+        if answer.get("nonce") and answer.get("ssecurity"):
+            first, client = answer, probe
+            nonce, ssecurity, location = answer["nonce"], answer["ssecurity"], answer.get("location")
+            key_source = f"{sid}:{name}"
+            break
+        if first is None:
+            first = answer
 
     exchange_debug = {
-        "code": first.get("code"),
-        "keys": sorted(first.keys()),
+        "code": first.get("code") if first else None,
+        "keys": sorted(first.keys()) if first else [],
         "keySource": key_source,
         "hasNonce": bool(nonce),
         "hasSsecurity": bool(ssecurity),
         "hasLocation": bool(location),
         "cookies": len(cookies),
+        "attempts": attempts,
     }
     if not nonce or not ssecurity or not location:
         return _reply({"ok": False, "debug": exchange_debug, "error": _message(
-            f"Сервис {sid} не выдал данные входа (код {first.get('code')})",
-            f"Service {sid} did not provide sign-in data (code {first.get('code')})")})
+            f"Сервис {sid} не выдал данные входа (код {first.get('code') if first else '?'})",
+            f"Service {sid} did not provide sign-in data (code {first.get('code') if first else '?'})")})
+
     sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
-    response = service.get(f"{location}&clientSign={sign}")
+    client.get(f"{location}&clientSign={sign}")
     # Имя cookie с токеном зависит от сервиса: у Mi Community это
-    # new_bbs_serviceToken, у unlockApi — своё. Ищем по суффиксу, а не по
-    # конкретному имени, иначе любой другой sid ломает вход.
-    # Берём весь jar сессии: за цепочкой редиректов cookies приходят с разных
-    # хостов, и только в jar они собраны вместе.
-    service_cookies = service.cookies.get_dict()
+    # new_bbs_serviceToken, у unlockApi — своё. Ищем по суффиксу.
+    service_cookies = client.cookies.get_dict()
     token = ""
     for key in sorted(service_cookies):
         if key.lower().endswith("servicetoken"):
