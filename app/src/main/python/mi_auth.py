@@ -343,6 +343,7 @@ def exchange(sid):
 
     parsed_location = urlparse(location)
     exchange_debug["locationHost"] = parsed_location.netloc
+    exchange_debug["locationPath"] = parsed_location.path
     exchange_debug["locationParams"] = sorted(
         key for key, _ in parse_qsl(parsed_location.query) if key not in ("nonce", "ssecurity")
     )
@@ -476,8 +477,18 @@ def qr_request(auth_data_json):
 
 
 def qr_auth_data(sid):
+    """Готовит параметры QR-входа. Вход идёт сразу под нужный сервис.
+
+    passToken привязан к сервису, под который выдан. Если войти под passport
+    (Mi Community), то unlock.update.* на свой STS отвечает 401 — сессия
+    чужого сервиса. Поэтому sid передаётся тот, под который нужен токен,
+    и для unlockApi запрашивается проверка безопасного адреса.
+    """
     session.cookies.clear()
-    initial = _json(session.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
+    params = {"sid": sid, "_json": True}
+    if sid == "unlockApi":
+        params["checkSafeAddress"] = "true"
+    initial = _json(session.get(SERVICE_LOGIN, params=params))
     data = {
         "sid": sid,
         "_json": False,

@@ -223,7 +223,7 @@ class PythonMiAuth(context: Context) {
                     LogLevel.INFO, LogTag.AUTH,
                     "STS $sid: HTTP ${d.optInt("stsStatus")}, cookies [$names], " +
                         "токен сервиса ${if (d.optBoolean("serviceToken")) "есть" else "нет"}, " +
-                        "хост ${d.optString("locationHost")}, параметры [$params]",
+                        "хост ${d.optString("locationHost")}${d.optString("locationPath")}, параметры [$params]",
                 )
                 val sts = d.optJSONArray("sts")
                 for (i in 0 until (sts?.length() ?: 0)) {

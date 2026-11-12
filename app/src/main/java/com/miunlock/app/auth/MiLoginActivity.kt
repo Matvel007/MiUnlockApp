@@ -393,7 +393,11 @@ class MiLoginActivity : ComponentActivity() {
                     t("Ожидание входа Xiaomi по QR-коду", "Waiting for Xiaomi QR sign-in"),
                 )
                 val proxy = configureAuthProxy()
-                val authData = auth.qrAuthData(QR_SID)
+                // Вход сразу под нужный сервис: passToken привязан к sid,
+                // и сессия passport на unlock-сервисе даёт 401.
+                val qrSid = currentSid()
+                DebugLog.add("QR: сервис входа $qrSid")
+                val authData = auth.qrAuthData(qrSid)
                 DebugLog.add("QR serviceLogin cookies: ${authData.cookieNames.joinToString().ifBlank { "none" }}")
                 while (qrMode) {
                     try {
@@ -419,7 +423,7 @@ class MiLoginActivity : ComponentActivity() {
                             DebugLog.add("QR-вход подтвержден Xiaomi")
                             qrStatus = t("QR отсканирован! Получаю токен...", "QR scanned! Getting token...")
                             qrMode = false
-                            DebugLog.add("QR: получаю Mi Community session")
+                            DebugLog.add("QR: получаю сессию сервиса $qrSid")
                             finishLogin()
                             return@launch
                         }
@@ -476,7 +480,6 @@ class MiLoginActivity : ComponentActivity() {
          */
         private const val SID_UNLOCK = "unlockApi"
 
-        private const val QR_SID = "passport"
     }
 }
 
