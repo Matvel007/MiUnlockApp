@@ -115,8 +115,8 @@ internal fun waitHoursIn(message: String): Int? =
  */
 internal fun unlockHint(code: Int?): Bilingual? = when (code) {
     10023, 20030 -> Bilingual(
-        "Этот аккаунт уже разблокировал устройство в этом месяце. Xiaomi разрешает одно устройство в месяц — ждите начала следующего.",
-        "This account already unlocked a device this month. Xiaomi allows one device per month — wait for the next month.",
+        "У аккаунта закончился лимит разблокировок. С 2025 года Xiaomi разрешает одно устройство в год на аккаунт (в старом FAQ — одно в месяц и до четырёх в год).",
+        "This account has used up its unlock quota. Since 2025 Xiaomi allows one device per year per account (the older FAQ says one per month, up to four per year).",
     )
     10005 -> Bilingual(
         "Сервер счёл запрос устаревшим. Нажмите «Разблокировать» ещё раз.",

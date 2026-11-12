@@ -13,8 +13,8 @@ class UnlockHintTest {
         // 10023 и 20030 — одно и то же правило Xiaomi, встречаются оба.
         val hint = unlockHint(10023)
         assertNotNull(hint)
-        assertTrue(hint!!.ru.contains("в этом месяце"))
-        assertTrue(hint.en.contains("this month"))
+        assertTrue(hint!!.ru.contains("в год"))
+        assertTrue(hint.en.contains("per year"))
         assertNotNull(unlockHint(20030))
     }
 
