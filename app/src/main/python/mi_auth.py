@@ -133,21 +133,42 @@ def exchange(sid):
         return _reply({"ok": False, "error": _message("Xiaomi не выдал passToken, userId или deviceId", "Xiaomi did not provide passToken, userId or deviceId")})
     service = requests.Session()
     service.headers.update(session.headers)
-    # Переносим все cookies аккаунта, а не только три: разным сервисам нужны
-    # разные (cUserId, iu и прочие), и без них serviceLogin не узнаёт сессию.
-    for key, value in cookies.items():
-        service.cookies.set(key, value)
-    first = _json(service.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
-    # Код ответа и наличие service data: по ним видно, принят ли passToken
-    # этим сервисом. Без этого отказ выглядит одинаково для всех причин.
+    # Переносим cookies вместе с их доменами: так же, как это делает
+    # проверенная реализация. Без домена cookie может не уйти на account.xiaomi.com.
+    service.cookies.update(session.cookies)
+
+    # checkSafeAddress — обязательный параметр сервисного входа: без него
+    # Xiaomi отвечает «успешно», но без nonce/ssecurity, и подписывать
+    # запросы становится нечем.
+    first = _json(service.get(
+        SERVICE_LOGIN,
+        params={"sid": sid, "checkSafeAddress": "true", "_json": True},
+    ))
+    nonce, ssecurity, location = first.get("nonce"), first.get("ssecurity"), first.get("location")
+
+    # Если сервис не отдал ключ, берём его у passport: это тот же аккаунт,
+    # и ключ подписи у него общий. В журнал пишется, какой путь сработал.
+    key_source = sid
+    if not nonce or not ssecurity:
+        passport = _json(service.get(
+            SERVICE_LOGIN,
+            params={"sid": "passport", "checkSafeAddress": "true", "_json": True},
+        ))
+        if passport.get("nonce") and passport.get("ssecurity"):
+            nonce = passport.get("nonce")
+            ssecurity = passport.get("ssecurity")
+            location = location or passport.get("location")
+            key_source = "passport"
+
     exchange_debug = {
         "code": first.get("code"),
-        "hasNonce": bool(first.get("nonce")),
-        "hasSsecurity": bool(first.get("ssecurity")),
-        "hasLocation": bool(first.get("location")),
-        "cookies": sorted(cookies.keys()),
+        "keys": sorted(first.keys()),
+        "keySource": key_source,
+        "hasNonce": bool(nonce),
+        "hasSsecurity": bool(ssecurity),
+        "hasLocation": bool(location),
+        "cookies": len(cookies),
     }
-    nonce, ssecurity, location = first.get("nonce"), first.get("ssecurity"), first.get("location")
     if not nonce or not ssecurity or not location:
         return _reply({"ok": False, "debug": exchange_debug, "error": _message(
             f"Сервис {sid} не выдал данные входа (код {first.get('code')})",

@@ -96,9 +96,10 @@ class PythonMiAuth(context: Context) {
             DebugLog.add(
                 LogLevel.INFO,
                 LogTag.AUTH,
-                "обмен $sid: код ${d.opt("code")}, nonce ${d.optBoolean("hasNonce")}, " +
-                    "ssecurity ${d.optBoolean("hasSsecurity")}, location ${d.optBoolean("hasLocation")}, " +
-                    "cookies ${d.optJSONArray("cookies")?.length() ?: 0}",
+                "обмен $sid: код ${d.opt("code")}, ключ ${d.optString("keySource")}, " +
+                    "nonce ${d.optBoolean("hasNonce")}, ssecurity ${d.optBoolean("hasSsecurity")}, " +
+                    "location ${d.optBoolean("hasLocation")}, cookies ${d.opt("cookies")}, " +
+                    "поля ${d.optJSONArray("keys")?.let { a -> List(a.length()) { a.optString(it) } }}",
             )
         }
         requireOk(result)
