@@ -63,6 +63,8 @@ data class ApplyResult(
     val message: String,
     val serverTime: Instant? = null,
     val successful: Boolean = false,
+    /** Xiaomi не подтвердил результат явно: правду даст только проверка статуса. */
+    val needsStateCheck: Boolean = false,
 )
 
 sealed interface AppIntent {

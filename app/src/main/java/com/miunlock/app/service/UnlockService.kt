@@ -109,7 +109,7 @@ class UnlockService : Service() {
             1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${state.deadline}"
             2 -> "📋 Разрешения НЕТ (можно подать заявку)"
             3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${state.deadline})"
-            4 -> "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней"
+            4 -> "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад"
             else -> state.message
         }
         if (checkOnly) {
@@ -178,6 +178,11 @@ class UnlockService : Service() {
                     )
                 } else {
                     DebugLog.add("Контрольная проверка: доступ не поднят (${state.message})")
+                    // Xiaomi не подтвердил заявку — показываем фактический
+                    // статус аккаунта, а не своё предположение о причине.
+                    if (result.needsStateCheck) {
+                        result = result.copy(message = "Xiaomi не подтвердил заявку. Статус аккаунта: ${state.message}")
+                    }
                 }
             }
         }
@@ -353,12 +358,17 @@ class UnlockService : Service() {
             message == "Сначала укажите serviceToken и deviceId" -> "Enter serviceToken and deviceId first"
             message == "Сначала укажите данные аккаунта" -> "Enter account details first"
             message == "Можно подать заявку" -> "You can submit an application"
-            message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
+            message == "Аккаунт создан менее 30 дней назад" -> "The account was created less than 30 days ago"
             message == "Заявка успешно подана" -> "Application submitted successfully"
             message == "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)" -> "Access granted! (Xiaomi returned quota error, but access is active)"
-            message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
-            message == "Повторите через минуту" -> "Try again in a minute"
-            message == "Повторите позже" -> "Try again later"
+            message == "Xiaomi не подтвердил заявку явно. Проверяю статус аккаунта…" -> "Xiaomi did not confirm the application explicitly. Checking account status…"
+            message.startsWith("Xiaomi не подтвердил заявку. Статус аккаунта: ") ->
+                "Xiaomi did not confirm the application. Account status: " +
+                    message.removePrefix("Xiaomi не подтвердил заявку. Статус аккаунта: ")
+            message.startsWith("Xiaomi не назвал результат (") ->
+                "Xiaomi did not report a result (${message.removePrefix("Xiaomi не назвал результат (").substringBefore(")")}). Checking account status…"
+            message.startsWith("Xiaomi вернул незнакомый статус (") ->
+                "Xiaomi returned an unknown status (${message.removePrefix("Xiaomi вернул незнакомый статус (").substringBefore(")")}). Check the application in Mi Community"
             message == "Пустой ответ сервера" -> "Empty server response"
             message == "Неизвестный ответ Xiaomi" -> "Unknown Xiaomi response"
             else -> message

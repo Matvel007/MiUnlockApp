@@ -136,39 +136,69 @@ class XiaomiApi {
 
     internal fun parseState(root: JSONObject): StateResult {
         val code = root.optInt("code", -1)
-        if (code != 0) return StateResult(-1, errorMessage(code, root.optString("msg", "Ошибка API")))
+        if (code != 0) return StateResult(-1, errorMessage(code, serverMessage(root)))
         val data = root.optJSONObject("data") ?: return StateResult(-1, "Пустой ответ сервера")
         val deadline = data.optString("deadline_format")
+        // Xiaomi отвечает парой is_pass + button_state. Разбираем все
+        // сочетания явно: домысливать статус нельзя, иначе человеку
+        // показывается причина, которой сервер не называл.
+        val isPass = data.optInt("is_pass", -1)
+        val buttonState = data.optInt("button_state", -1)
         return when {
-            data.optInt("is_pass") == 1 -> StateResult(1, "Доступ к разблокировке уже получен до $deadline", deadline)
-            data.optInt("button_state") == 1 -> StateResult(2, "Можно подать заявку", deadline)
-            data.optInt("button_state") == 2 -> StateResult(3, "Ошибка аккаунта. Повторите после $deadline", deadline)
-            else -> StateResult(4, "Аккаунт должен быть зарегистрирован более 30 дней", deadline)
+            isPass == 1 -> StateResult(1, "Доступ к разблокировке уже получен до $deadline", deadline)
+            isPass == 4 && buttonState == 1 -> StateResult(2, "Можно подать заявку", deadline)
+            isPass == 4 && buttonState == 2 -> StateResult(3, "Ошибка аккаунта. Повторите после $deadline", deadline)
+            isPass == 4 && buttonState == 3 -> StateResult(4, "Аккаунт создан менее 30 дней назад", deadline)
+            else -> StateResult(
+                5,
+                "Xiaomi вернул незнакомый статус (is_pass=$isPass, button_state=$buttonState). Проверьте заявку в Mi Community",
+                deadline,
+            )
         }
     }
 
     internal fun parseApply(root: JSONObject): ApplyResult {
         val serverTime = root.optLong("ts", 0).takeIf { it > 0 }?.let(Instant::ofEpochSecond)
         val code = root.optInt("code", -1)
-        if (code != 0) return ApplyResult(-1, errorMessage(code, root.optString("msg", "Ошибка API")), serverTime)
+        // 100003 Xiaomi отдаёт, когда заявка, вероятно, уже принята: явного
+        // подтверждения нет, но и отказа тоже. Это не ошибка — настоящий
+        // ответ даёт проверка статуса аккаунта.
+        if (code == CODE_MAYBE_APPLIED) {
+            return ApplyResult(
+                code = 7,
+                message = "Xiaomi не подтвердил заявку явно. Проверяю статус аккаунта…",
+                serverTime = serverTime,
+                needsStateCheck = true,
+            )
+        }
+        if (code != 0) return ApplyResult(-1, errorMessage(code, serverMessage(root)), serverTime)
         val data = root.optJSONObject("data") ?: return ApplyResult(-1, "Пустой ответ сервера", serverTime)
         val deadline = data.optString("deadline_format")
-        return when (data.optInt("apply_result")) {
+        val applyResult = data.optInt("apply_result", -1)
+        return when (applyResult) {
             1 -> ApplyResult(1, "Заявка успешно подана", serverTime, true)
             2, 4 -> ApplyResult(2, "Ошибка аккаунта. Повторите после $deadline", serverTime)
             3 -> ApplyResult(3, "Лимит заявок исчерпан. Повторите после $deadline (GMT+8)", serverTime)
-            5 -> ApplyResult(4, "Заявка отклонена. Попробуйте позже", serverTime)
-            6 -> ApplyResult(5, "Повторите через минуту", serverTime)
-            7 -> ApplyResult(6, "Повторите позже", serverTime)
-            else -> ApplyResult(-1, "Неизвестный ответ Xiaomi", serverTime)
+            // Остальные значения Xiaomi не описал. Гадать «отклонена» или
+            // «повторите позже» нельзя — отправляем человека к статусу заявки.
+            else -> ApplyResult(
+                6,
+                "Xiaomi не назвал результат (apply_result=$applyResult). Проверяю статус аккаунта…",
+                serverTime,
+                needsStateCheck = true,
+            )
         }
     }
+
+    /** Текст ошибки Xiaomi: в разных ответах он лежит в `msg` или `message`. */
+    private fun serverMessage(root: JSONObject): String =
+        root.optString("msg").ifBlank { root.optString("message") }.ifBlank { "Ошибка API" }
 
     private fun errorMessage(code: Int, fallback: String): String = when (code) {
         100001 -> "Ошибка параметров"
         100002 -> "Ошибка CSRF-токена"
         100003 -> "Операция не выполнена"
-        100004 -> "Требуется повторный вход"
+        100004, 10004 -> "Требуется повторный вход"
         100009 -> "Аккаунт заблокирован"
         else -> "$fallback (код $code)"
     }
@@ -176,6 +206,7 @@ class XiaomiApi {
     companion object {
         private const val STATE_URL = "https://sgp-api.buy.mi.com/bbs/api/global/user/bl-switch/state"
         private const val APPLY_URL = "https://sgp-api.buy.mi.com/bbs/api/global/apply/bl-auth"
+        private const val CODE_MAYBE_APPLIED = 100003
         private const val CHECK_SAMPLES = 7
         private const val MIN_DELAY_MS = 50
         private const val MAX_DELAY_MS = 3_000

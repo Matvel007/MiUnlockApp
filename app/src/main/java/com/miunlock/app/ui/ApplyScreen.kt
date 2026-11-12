@@ -429,8 +429,8 @@ private fun localizedMessage(message: String, language: String): String {
         message.startsWith("📋 Разрешения НЕТ (можно подать заявку)") ->
             "📋 NO PERMISSION YET (ready to submit application)${message.removePrefix("📋 Разрешения НЕТ (можно подать заявку)")}"
 
-        message == "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней" ->
-            "⛔ NO PERMISSION. The account must be registered for more than 30 days"
+        message == "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад" ->
+            "⛔ NO PERMISSION. The account was created less than 30 days ago"
         message.startsWith("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ") ->
             "⛔ NO PERMISSION. Account error (retry after ${message.removePrefix("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ").removeSuffix(")")})" +
                 if (message.endsWith(")")) ")" else ""
@@ -439,6 +439,14 @@ private fun localizedMessage(message: String, language: String): String {
 
         message.startsWith("Доступ к разблокировке уже получен до ") ->
             "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
+        // Xiaomi не подтвердил результат: показываем фактический статус.
+        message.startsWith("Xiaomi не подтвердил заявку. Статус аккаунта: ") ->
+            "Xiaomi did not confirm the application. Account status: " +
+                localizedMessage(message.removePrefix("Xiaomi не подтвердил заявку. Статус аккаунта: "), "en")
+        message.startsWith("Xiaomi не назвал результат (") ->
+            "Xiaomi did not report a result (${message.removePrefix("Xiaomi не назвал результат (").substringBefore(")")}). Checking account status…"
+        message.startsWith("Xiaomi вернул незнакомый статус (") ->
+            "Xiaomi returned an unknown status (${message.removePrefix("Xiaomi вернул незнакомый статус (").substringBefore(")")}). Check the application in Mi Community"
         message.startsWith("Ошибка аккаунта. Повторите после ") ->
             "Account error. Retry after ${message.removePrefix("Ошибка аккаунта. Повторите после ")}"
         message.startsWith("Лимит заявок исчерпан. Повторите после ") ->
@@ -468,12 +476,10 @@ private fun localizedMessage(message: String, language: String): String {
         message == "Сначала укажите serviceToken и deviceId" -> "Enter serviceToken and deviceId first"
         message == "Сначала укажите данные аккаунта" -> "Enter account details first"
         message == "Можно подать заявку" -> "You can submit an application"
-        message == "Аккаунт должен быть зарегистрирован более 30 дней" -> "The account must be registered for more than 30 days"
+        message == "Аккаунт создан менее 30 дней назад" -> "The account was created less than 30 days ago"
         message == "Заявка успешно подана" -> "Application submitted successfully"
         message == "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)" -> "Access granted! (Xiaomi returned quota error, but access is active)"
-        message == "Заявка отклонена. Попробуйте позже" -> "Application rejected. Try again later"
-        message == "Повторите через минуту" -> "Try again in a minute"
-        message == "Повторите позже" -> "Try again later"
+        message == "Xiaomi не подтвердил заявку явно. Проверяю статус аккаунта…" -> "Xiaomi did not confirm the application explicitly. Checking account status…"
         message == "Пустой ответ сервера" -> "Empty server response"
         message == "Неизвестный ответ Xiaomi" -> "Unknown Xiaomi response"
         message == "Ошибка параметров" -> "Invalid parameters"

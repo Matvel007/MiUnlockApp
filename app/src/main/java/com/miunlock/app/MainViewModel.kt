@@ -112,7 +112,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${check.state.deadline}"
                 2 -> "📋 Разрешения НЕТ (можно подать заявку). Смещение: ${check.recommendedDelayMs} мс (средний RTT ${check.averageRttMs} мс)"
                 3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${check.state.deadline})"
-                4 -> "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней"
+                4 -> "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад"
                 else -> "${check.state.message}. Смещение: ${check.recommendedDelayMs} мс"
             }
             snackbar.value = statusText
