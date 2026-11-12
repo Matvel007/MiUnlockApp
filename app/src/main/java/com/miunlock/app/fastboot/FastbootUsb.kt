@@ -55,14 +55,18 @@ class FastbootUsb(private val context: Context) {
         return map.values.filter { hasFastbootInterface(it) }
     }
 
+    /**
+     * Интерфейс загрузчика. Точный признак — протокол `0x03`, но часть прошивок
+     * отдаёт `0x00`/`0x01`: для них достаточно класса `0xFF/0x42`, иначе живой
+     * fastboot не находится.
+     */
     fun hasFastbootInterface(dev: UsbDevice): Boolean {
         for (i in 0 until dev.interfaceCount) {
             val intf = dev.getInterface(i)
             if (intf.interfaceClass != CLASS || intf.interfaceSubclass != SUBCLASS) continue
-            // Часть прошивок отдаёт fastboot с протоколом 0x00/0x01 — узнаём по PID.
-            if (com.miunlock.app.adb.UsbDeviceKind.canBeFastboot(intf.interfaceProtocol)) {
-                return true
-            }
+            if (intf.interfaceProtocol == PROTOCOL) return true
+            // Класс совпал, протокол нестандартный — пробуем как fastboot.
+            if (intf.interfaceProtocol != 0x01) return true
         }
         return false
     }
@@ -222,6 +226,42 @@ class FastbootUsb(private val context: Context) {
             "USB %04x:%04x".format(dev.vendorId, dev.productId)
         } else {
             name
+        }
+    }
+
+    /**
+     * Имя для человека. В fastboot USB-имена почти всегда бесполезны:
+     * телефон представляется как «Google Android». Тогда показываем codename,
+     * который загрузчик отдаёт сам.
+     */
+    fun friendlyLabel(dev: UsbDevice, codename: String): String {
+        val raw = deviceLabel(dev)
+        val useless = raw.isBlank() ||
+            raw.contains("android", ignoreCase = true) ||
+            raw.equals("google", ignoreCase = true)
+        return when {
+            !useless -> raw
+            codename.isNotBlank() -> codename
+            else -> raw.ifBlank { "USB %04x:%04x".format(dev.vendorId, dev.productId) }
+        }
+    }
+
+    /** Все USB-устройства с интерфейсами — в журнал, когда fastboot не нашёлся. */
+    fun allDevicesDiagnostics(): String {
+        val list = usb.deviceList?.values.orEmpty()
+        if (list.isEmpty()) return "USB: устройств не видно вообще"
+        return list.joinToString(" || ") { dev ->
+            buildString {
+                append("USB %04X:%04X".format(dev.vendorId, dev.productId))
+                for (i in 0 until dev.interfaceCount) {
+                    val intf = dev.getInterface(i)
+                    append(" #").append(i)
+                    append(" %02X/%02X/%02X".format(
+                        intf.interfaceClass, intf.interfaceSubclass, intf.interfaceProtocol,
+                    ))
+                    append(" ep=").append(intf.endpointCount)
+                }
+            }
         }
     }
 

@@ -61,7 +61,6 @@ internal fun UnlockScreenContent(
     onBack: () -> Unit,
     onLogin: () -> Unit,
     onScan: () -> Unit,
-    onFastboot: () -> Unit,
     onUnlock: () -> Unit,
     onAnswerConfirm: (Boolean) -> Unit,
     onZone: (String) -> Unit,
@@ -123,7 +122,6 @@ internal fun UnlockScreenContent(
                     DeviceCard(
                         state = state,
                         onScan = onScan,
-                        onFastboot = onFastboot,
                         onUnlock = onUnlock,
                     )
                 }
@@ -205,7 +203,6 @@ private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
 private fun DeviceCard(
     state: UnlockUiState,
     onScan: () -> Unit,
-    onFastboot: () -> Unit,
     onUnlock: () -> Unit,
 ) {
     SketchCard {
@@ -246,25 +243,12 @@ private fun DeviceCard(
             Text("codename: ${state.product}", fontFamily = FontFamily.Monospace, fontSize = 12.sp)
         }
         Spacer(Modifier.height(12.dp))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            OutlinedButton(
-                onClick = onScan,
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(14.dp),
-            ) { Text(tr("НАЙТИ", "FIND"), maxLines = 1) }
-            OutlinedButton(
-                onClick = onFastboot,
-                modifier = Modifier.weight(1f),
-                enabled = !state.running && !state.switching,
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                if (state.switching) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                } else {
-                    Text(tr("В FASTBOOT", "FASTBOOT"), maxLines = 1)
-                }
-            }
-        }
+        OutlinedButton(
+            onClick = onScan,
+            enabled = !state.running,
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+        ) { Text(tr("НАЙТИ УСТРОЙСТВО", "FIND DEVICE")) }
         Spacer(Modifier.height(10.dp))
         Button(
             onClick = onUnlock,
@@ -364,10 +348,9 @@ private fun InstructionCard() {
         SectionTitle("03", tr("ИНСТРУКЦИЯ", "INSTRUCTIONS"))
         val steps = listOf(
             tr("Войдите в Mi Account на этом телефоне.", "Sign in to Mi Account on this phone."),
-            tr("Подключите целевой телефон к этому телефону по OTG-кабелю.", "Connect the target phone to this phone with an OTG cable."),
-            tr("Нажмите «В FASTBOOT» — телефон сам уйдёт в загрузчик. Для этого на нём должна быть включена «Отладка по USB»; при первом подключении он спросит разрешение на своём экране.", "Tap “FASTBOOT” — the phone reboots into the bootloader by itself. “USB debugging” must be enabled on it; on the first connection it asks for permission on its own screen."),
-            tr("Если отладка выключена, переведите вручную: выключите телефон и зажмите Громкость− и Питание.", "If debugging is off, do it by hand: power the phone off, then hold Volume Down and Power."),
-            tr("Приложение найдёт устройство само. Если нет — нажмите «НАЙТИ» и разрешите доступ к USB.", "The app finds the device by itself. If not, tap “FIND” and allow USB access."),
+            tr("Выключите целевой телефон и зажмите Громкость− и Питание — он загрузится в fastboot.", "Power the target phone off and hold Volume Down and Power — it boots into fastboot."),
+            tr("Подключите его к этому телефону по OTG-кабелю.", "Connect it to this phone with an OTG cable."),
+            tr("Нажмите «Найти устройство» и разрешите доступ к USB.", "Tap “Find device” and allow USB access."),
             tr("Нажмите «Разблокировать» и подтвердите стирание данных.", "Tap “Unlock” and confirm the data wipe."),
         )
         steps.forEachIndexed { i, line ->

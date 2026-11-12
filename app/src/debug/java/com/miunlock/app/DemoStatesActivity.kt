@@ -59,7 +59,6 @@ class DemoStatesActivity : ComponentActivity() {
                             onBack = {},
                             onLogin = {},
                             onScan = {},
-                            onFastboot = {},
                             onUnlock = {},
                             onAnswerConfirm = {},
                             onZone = {},
@@ -190,14 +189,6 @@ private fun demos(): List<Demo> = listOf(
             product = "begonia",
             step = UnlockStep.DONE,
             status = Bilingual("Разблокировано", "Unlocked"),
-        ),
-    ),
-    Demo(
-        "12 идёт переход в fastboot",
-        UnlockUiState(
-            session = loggedIn,
-            switching = true,
-            status = Bilingual("Готовлю переход в fastboot…", "Preparing to boot into fastboot…"),
         ),
     ),
 )
