@@ -128,22 +128,80 @@ internal fun unlockHint(code: Int?): Bilingual? = when (code) {
         "The server treated the request as stale. Tap “Unlock” again.",
     )
     20031 -> Bilingual(
-        "Xiaomi не пускает к разблокировке этого устройства. Две причины: либо аккаунт " +
-            "не привязан к нему (Настройки → Дополнительные настройки → Для разработчиков → " +
-            "Статус разблокировки Mi → «Добавить аккаунт и устройство»), либо привязка есть, " +
-            "но отсчёт ещё не закончился — обычно 168 часов. Точный остаток показывает " +
-            "официальная программа Mi Unlock на ПК.",
-        "Xiaomi is not allowing this device to be unlocked. Two causes: either the account " +
-            "is not bound to it (Settings → Additional settings → Developer options → " +
-            "Mi Unlock status → “Add account and device”), or the binding exists but the " +
-            "waiting period has not finished — usually 168 hours. The official Mi Unlock " +
-            "tool on a PC shows the exact remaining time.",
+        "Xiaomi не видит привязки аккаунта к этому устройству. Приложение уже проверило " +
+            "все дата-центры, так что дело не в зоне. На телефоне: Настройки → " +
+            "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi → " +
+            "«Добавить аккаунт и устройство». Аккаунт должен быть тот же, что здесь.",
+        "Xiaomi does not see the account bound to this device. The app has already tried " +
+            "every data centre, so the zone is not the issue. On the phone: Settings → " +
+            "Additional settings → Developer options → Mi Unlock status → " +
+            "“Add account and device”. It must be the same account as here.",
     )
     20032 -> Bilingual(
         "Xiaomi не принял привязку. Проверьте, что на телефоне включён тот же аккаунт, " +
             "что и в приложении, вставлена SIM-карта и есть интернет.",
         "Xiaomi rejected the binding. Make sure the phone is signed in to the same account " +
             "as the app, with a SIM card inserted and internet available.",
+    )
+    20036 -> Bilingual(
+        "Идёт обязательный отсчёт. Xiaomi считает его по паре «аккаунт + устройство» " +
+            "и не даёт разблокировать раньше срока. Не добавляйте аккаунт заново — " +
+            "отсчёт начнётся с нуля.",
+        "The mandatory waiting period is running. Xiaomi counts it per account-and-device " +
+            "pair and will not unlock earlier. Do not add the account again — the countdown " +
+            "would restart from zero.",
+    )
+    20033 -> Bilingual(
+        "Xiaomi ограничил аккаунт за подозрительную активность. Попробуйте включить " +
+            "«Найти устройство» в настройках; если не поможет — нужен другой аккаунт.",
+        "Xiaomi restricted this account for suspicious activity. Try enabling “Find device” " +
+            "in settings; if that does not help, another account is required.",
+    )
+    20035 -> Bilingual(
+        "Xiaomi требует более новую версию программы. Обновите приложение.",
+        "Xiaomi requires a newer version of the tool. Update the app.",
+    )
+    20038 -> Bilingual(
+        "Устройство заблокировано аккаунтом через «Найти устройство». Зайдите на " +
+            "i.mi.com/mobile/find, выберите это устройство и отключите поиск.",
+        "The device is locked by an account through “Find device”. Open " +
+            "i.mi.com/mobile/find, select this device and turn off locating.",
+    )
+    20039 -> Bilingual(
+        "Токен устройства неполный — в нём нет всех нужных данных. Перезагрузите " +
+            "телефон в fastboot заново и повторите.",
+        "The device token is incomplete — it lacks required data. Reboot the phone " +
+            "into fastboot again and retry.",
+    )
+    20041 -> Bilingual(
+        "К аккаунту не привязан номер телефона. Добавьте номер: " +
+            "account.xiaomi.com/pass/serviceLogin?checkSafePhone=true",
+        "The account has no phone number linked. Add one: " +
+            "account.xiaomi.com/pass/serviceLogin?checkSafePhone=true",
+    )
+    20045 -> Bilingual(
+        "Не совпадает регион: аккаунт и устройство проданы в разных странах. " +
+            "Для китайского устройства нужен китайский аккаунт, для глобального — глобальный.",
+        "Region mismatch: the account and the device come from different markets. " +
+            "A Chinese device needs a Chinese account, a global device a global one.",
+    )
+    30002 -> Bilingual(
+        "Аккаунт не привязан в статусе разблокировки на устройстве. " +
+            "Настройки → Для разработчиков → Статус разблокировки Mi → «Добавить аккаунт и устройство».",
+        "The account is not bound in Mi Unlock status on the device. " +
+            "Settings → Developer options → Mi Unlock status → “Add account and device”.",
+    )
+    10013 -> Bilingual(
+        "Устройство активировано слишком недавно либо не активировано. Нужна SIM-карта " +
+            "с интернетом и около 7 дней с момента активации.",
+        "The device was activated too recently or not activated at all. A SIM card with " +
+            "internet is required, and about 7 days since activation.",
+    )
+    10000 -> Bilingual(
+        "Сервер не принял параметры: неверный токен устройства или codename. " +
+            "Перезапустите приложение и повторите.",
+        "The server rejected the parameters: bad device token or codename. " +
+            "Restart the app and retry.",
     )
     else -> null
 }

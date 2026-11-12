@@ -162,9 +162,17 @@ class UnlockWorkflow(
         fun onProgress(progress: UnlockProgress)
     }
 
-    /** Код сервера: nonce уже использован другим вызовом. */
+    /**
+     * Коды сервера, при которых имеет смысл пробовать другую зону дата-центра.
+     *
+     * `20031` — «привяжите аккаунт»: на привязанном устройстве Xiaomi отвечает
+     * так при неверной зоне (это описано в справочнике кодов MiForge).
+     * `20045` — «не тот дата-центр» прямо. `30002` — отсылка в Mi Community,
+     * лечится тем же перебором зон.
+     */
     private companion object {
         const val CODE_INVALID_NONCE = 10005
+        val ZONE_CODES = setOf(20031, 20045, 30002)
     }
 
     /** Один вызов ahaUnlock с заданным nonce. */
@@ -232,9 +240,17 @@ class UnlockWorkflow(
             listener.onProgress(UnlockProgress(UnlockStep.TOKEN, "Токен получен, ${token.length} символов", "Token received, ${token.length} chars"))
 
             // Домен сервиса Xiaomi называет сам в STS — токен привязан к нему.
-            // Зона остаётся запасным вариантом: у части аккаунтов STS ведёт
-            // не туда, куда указывает регион.
+            // Но `ahaUnlock` смотрит не на регион аккаунта, а на дата-центр,
+            // которому принадлежит uid. Это разные вещи: аккаунт с регионом LV
+            // может обслуживаться Сингапуром, и тогда честный запрос к eu-
+            // получает «привяжите аккаунт» (20031) при живой привязке.
+            // Поэтому дата-центр по uid идёт первым, дальше — STS и регион.
+            val dataCenter = DataCenter.zoneForUid(session.userId)
             val domains = buildList {
+                if (dataCenter != null) {
+                    val byUid = UnlockApi.domainForZone(dataCenter)
+                    if (byUid !in this) add(byUid)
+                }
                 if (session.stsDomain.isNotBlank()) add(session.stsDomain)
                 val zoned = UnlockApi.domainForZone(session.zone)
                 if (zoned !in this) add(zoned)
@@ -242,7 +258,8 @@ class UnlockWorkflow(
             DebugLog.add(
                 LogLevel.INFO,
                 LogTag.API,
-                "зона ${session.zone}, домены ${domains.joinToString(" → ")}",
+                "зона ${session.zone}, дата-центр ${dataCenter ?: "неизвестен"}, " +
+                    "домены ${domains.joinToString(" → ")}",
             )
 
             step(UnlockStep.NONCE, "Запрашиваю nonce", "Requesting a nonce")
@@ -294,40 +311,71 @@ class UnlockWorkflow(
                 return UnlockOutcome.Cancelled
             }
 
-            // Проверенный порядок: тот же nonce идёт в ahaUnlock. Если сервер
-            // всё же скажет 10005 (nonce израсходован), берём новый и повторяем
-            // один раз — так покрыты обе реализации.
             step(UnlockStep.AHA, "Запрашиваю подпись у Xiaomi", "Requesting the Xiaomi signature")
-            var aha = requestAha(domain, product, token, nonce, session)
-            DebugLog.trace(LogTag.API, "ahaUnlock: код ${aha.code} ${aha.desc}")
-            if (!aha.isOk && aha.code == CODE_INVALID_NONCE) {
-                DebugLog.warn(LogTag.API, "ahaUnlock: nonce израсходован, беру новый")
-                val fresh = api.nonce(domain, session.ssecurity, session.cookies)
-                if (!fresh.isOk) {
-                    return UnlockOutcome.Failure(UnlockStep.NONCE, fresh.desc, fresh.code)
+            // ahaUnlock привязан к дата-центру: при неверной зоне Xiaomi
+            // отвечает 20031/20045 даже на привязанное устройство. В справочнике
+            // кодов MiForge это прямо указано: «если аккаунт уже привязан,
+            // выберите дата-центр вручную». Поэтому перебираем зоны, начиная
+            // с той, где сработал nonce.
+            val ahaDomains = buildList {
+                add(domain)
+                for (zone in listOf(
+                    UnlockApi.ZONE_EUROPE,
+                    UnlockApi.ZONE_SINGAPORE,
+                    UnlockApi.ZONE_RUSSIA,
+                    UnlockApi.ZONE_INDIA,
+                    UnlockApi.ZONE_CHINA,
+                )) {
+                    val candidate = UnlockApi.domainForZone(zone)
+                    if (candidate !in this) add(candidate)
                 }
-                val nonce2 = fresh.json.optString("nonce")
-                aha = requestAha(domain, product, token, nonce2, session)
-                DebugLog.trace(LogTag.API, "ahaUnlock (повтор): код ${aha.code} ${aha.desc}")
             }
-            if (!aha.isOk) {
-                // Тело отказа — единственный источник часов ожидания. Сервер
-                // кладёт туда не только текст: у Xiaomi есть отдельные поля
-                // с остатком срока. Печатаем все ключи, кроме зашифрованных.
-                val fields = aha.json.keys().asSequence()
+            var aha: UnlockApiResult? = null
+            for (candidate in ahaDomains) {
+                // nonce одноразовый: device/clear его уже израсходовал, поэтому
+                // перед каждым ahaUnlock берётся новый — иначе гарантированный 10005.
+                var fresh = api.nonce(candidate, session.ssecurity, session.cookies)
+                if (!fresh.isOk) {
+                    DebugLog.warn(LogTag.API, "nonce на $candidate не получен: ${fresh.code} ${fresh.desc}")
+                    continue
+                }
+                var attempt = requestAha(candidate, product, token, fresh.json.optString("nonce"), session)
+                if (attempt.code == CODE_INVALID_NONCE) {
+                    DebugLog.warn(LogTag.API, "ahaUnlock: nonce израсходован, беру новый")
+                    fresh = api.nonce(candidate, session.ssecurity, session.cookies)
+                    if (fresh.isOk) {
+                        attempt = requestAha(candidate, product, token, fresh.json.optString("nonce"), session)
+                    }
+                }
+                DebugLog.add(
+                    LogLevel.INFO, LogTag.API,
+                    "ahaUnlock на $candidate: код ${attempt.code} ${attempt.desc}",
+                )
+                aha = attempt
+                // Менять зону имеет смысл только при отказе «не та зона / не привязан».
+                if (attempt.isOk || attempt.code !in ZONE_CODES) break
+            }
+            val result = aha ?: return UnlockOutcome.Failure(
+                UnlockStep.AHA, "не удалось получить nonce ни в одной зоне",
+            )
+            if (!result.isOk) {
+                // Тело отказа — единственный источник подробностей. Сервер
+                // кладёт туда не только текст, поэтому печатаем все ключи,
+                // кроме зашифрованных, чтобы не гадать.
+                val fields = result.json.keys().asSequence()
                     .filter { it != "encryptData" }
                     .joinToString(", ") { key ->
-                        val value = aha.json.opt(key)
+                        val value = result.json.opt(key)
                         "$key=${value.toString().take(60)}"
                     }
                 DebugLog.add(
                     LogLevel.INFO, LogTag.API,
-                    "ahaUnlock: отказ ${aha.code}, поля ответа: $fields",
+                    "ahaUnlock: отказ ${result.code}, поля ответа: $fields",
                 )
                 // Сервер называет uid, под которым оценивал запрос. Если он
                 // расходится с uid сессии — устройство привязано к другому
                 // аккаунту, и привязку надо делать тем, что в приложении.
-                val answered = aha.json.optString("uid")
+                val answered = result.json.optString("uid")
                 if (answered.isNotBlank()) {
                     val same = answered == session.userId
                     DebugLog.add(
@@ -336,9 +384,9 @@ class UnlockWorkflow(
                             if (same) "совпадают" else "РАЗНЫЕ аккаунты",
                     )
                 }
-                return UnlockOutcome.Failure(UnlockStep.AHA, aha.desc, aha.code)
+                return UnlockOutcome.Failure(UnlockStep.AHA, result.desc, result.code)
             }
-            val encryptData = aha.json.optString("encryptData")
+            val encryptData = result.json.optString("encryptData")
             if (encryptData.isEmpty()) {
                 return UnlockOutcome.Failure(UnlockStep.AHA, "сервер вернул пустой encryptData")
             }
