@@ -17,7 +17,8 @@ import com.miunlock.app.domain.AppState
 /** Экраны приложения. Стартовый — выбор режима. */
 private enum class Screen { HOME, APPLY, UNLOCK }
 
-private const val REPO_URL = "https://github.com/Matvel007/MiUnlockApp"
+/** Адрес репозитория: один на всё приложение, чтобы ссылки не расходились. */
+internal const val REPO_URL = "https://github.com/Matvel007/MiUnlockApp"
 
 /**
  * Точка входа навигации. Режимы независимы: у каждого своё состояние

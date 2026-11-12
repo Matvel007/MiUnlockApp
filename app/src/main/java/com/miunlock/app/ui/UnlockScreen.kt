@@ -2,6 +2,7 @@ package com.miunlock.app.ui
 
 import android.app.Application
 import android.content.Intent
+import android.net.Uri
 import android.hardware.usb.UsbDevice
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
@@ -356,5 +357,12 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
         onProxy = vm::saveProxy,
         onLanguage = onLanguage,
         onLogout = vm::logout,
+        onGitHub = {
+            runCatching {
+                context.startActivity(
+                    Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)),
+                )
+            }
+        },
     )
 }

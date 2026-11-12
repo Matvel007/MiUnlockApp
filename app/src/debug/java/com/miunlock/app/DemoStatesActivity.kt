@@ -65,6 +65,7 @@ class DemoStatesActivity : ComponentActivity() {
                             onProxy = {},
                             onLanguage = { language = it },
                             onLogout = {},
+                            onGitHub = {},
                         )
                         Box(Modifier.align(Alignment.BottomCenter)) {
                             DemoBar(
@@ -91,6 +92,8 @@ private val loggedIn = UnlockSession(
     ssecurity = "ssecurity",
     userId = "1234567890",
     deviceId = "wb_0123456789",
+    cookies = mapOf("cUserId" to "1234567890"),
+    sid = "unlockApi",
 )
 
 private fun demos(): List<Demo> = listOf(

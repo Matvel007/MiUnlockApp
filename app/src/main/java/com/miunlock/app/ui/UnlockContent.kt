@@ -67,6 +67,7 @@ internal fun UnlockScreenContent(
     onProxy: (ProxySettings) -> Unit,
     onLanguage: (String) -> Unit,
     onLogout: () -> Unit,
+    onGitHub: () -> Unit,
 ) {
     var showConsole by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -109,6 +110,7 @@ internal fun UnlockScreenContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { BackArrow() }
                         Spacer(Modifier.weight(1f))
+                        GithubButton(onClick = onGitHub)
                         IconButton(onClick = { showConsole = true }) {
                             ConsoleIcon(MaterialTheme.colorScheme.onSurface)
                         }
@@ -116,7 +118,11 @@ internal fun UnlockScreenContent(
                     }
                 }
                 item {
-                    AccountStateCard(session = state.session, onLogin = onLogin)
+                    AccountStateCard(
+                        session = state.session,
+                        onLogin = onLogin,
+                        onLogout = onLogout,
+                    )
                 }
                 item {
                     DeviceCard(
@@ -164,7 +170,11 @@ internal fun UnlockScreenContent(
 }
 
 @Composable
-private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
+private fun AccountStateCard(
+    session: UnlockSession,
+    onLogin: () -> Unit,
+    onLogout: () -> Unit,
+) {
     SketchCard(container = if (session.isValid) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f) else null) {
         SectionTitle("01", tr("АККАУНТ", "ACCOUNT"))
         if (session.isValid) {
@@ -180,6 +190,19 @@ private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.secondary,
             )
+            Spacer(Modifier.height(12.dp))
+            // Сменить аккаунт можно без выхода: новый вход перезаписывает сессию.
+            Button(
+                onClick = onLogin,
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = MiOrange),
+            ) { Text(tr("СМЕНИТЬ / ОБНОВИТЬ ВХОД", "CHANGE / REFRESH SIGN-IN")) }
+            Spacer(Modifier.height(8.dp))
+            TextButton(
+                onClick = onLogout,
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text(tr("ВЫЙТИ ИЗ АККАУНТА", "SIGN OUT")) }
         } else {
             Text(
                 tr(
