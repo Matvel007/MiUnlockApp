@@ -230,6 +230,23 @@ class XiaomiAuth {
     fun currentPassportCookies(): Map<String, String> =
         passportCookieJar.allCookies().associate { it.name to it.value }
 
+    /**
+     * Данные последнего успешного обмена serviceToken. Нужны режиму разблокировки:
+     * кроме самого токена там требуются ssecurity, userId и cookies, которые
+     * для заявки не нужны и раньше просто терялись.
+     */
+    data class ServiceSession(
+        val serviceToken: String,
+        val deviceId: String,
+        val userId: String,
+        val ssecurity: String,
+        val cookies: Map<String, String>,
+    )
+
+    private var lastServiceSession: ServiceSession? = null
+
+    fun lastSession(): ServiceSession? = lastServiceSession
+
     suspend fun exchangePreparedServiceToken(sid: String): Map<String, String> {
         val passportCookies = passportCookieJar.allCookies()
             .associate { it.name to it.value }
@@ -315,6 +332,14 @@ class XiaomiAuth {
         if (harvested["new_bbs_serviceToken"].isNullOrBlank()) {
             error("Не удалось получить serviceToken. Проверьте вход.")
         }
+
+        lastServiceSession = ServiceSession(
+            serviceToken = harvested["new_bbs_serviceToken"].orEmpty(),
+            deviceId = harvested["deviceId"].orEmpty(),
+            userId = harvested["userId"].orEmpty(),
+            ssecurity = ssecurity,
+            cookies = harvested.toMap(),
+        )
 
         harvested
     }

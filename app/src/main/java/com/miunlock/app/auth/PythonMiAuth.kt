@@ -21,6 +21,15 @@ data class PythonLoginResult(
     val verificationMethods: List<String> = emptyList(),
 )
 
+/** Данные сервисной сессии Mi Account. */
+data class ServiceLogin(
+    val serviceToken: String,
+    val deviceId: String,
+    val userId: String,
+    val ssecurity: String,
+    val cookies: Map<String, String>,
+)
+
 data class QrLoginData(
     val loginUrl: String,
     val lp: String,
@@ -74,6 +83,22 @@ class PythonMiAuth(context: Context) {
         val result = call("exchange", sid)
         requireOk(result)
         return result.getString("token") to result.getString("deviceId")
+    }
+
+    /** Полный набор данных сервисной сессии — нужен режиму разблокировки. */
+    suspend fun exchangeFull(sid: String): ServiceLogin {
+        val result = call("exchange", sid)
+        requireOk(result)
+        val cookies = result.optJSONObject("cookies")?.let { obj ->
+            obj.keys().asSequence().associateWith { obj.optString(it) }
+        }.orEmpty()
+        return ServiceLogin(
+            serviceToken = result.getString("token"),
+            deviceId = result.getString("deviceId"),
+            userId = result.optString("userId"),
+            ssecurity = result.optString("ssecurity"),
+            cookies = cookies,
+        )
     }
 
     suspend fun qrLogin(authDataJson: String): QrLoginData {

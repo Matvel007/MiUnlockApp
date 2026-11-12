@@ -106,7 +106,9 @@ import com.miunlock.app.data.DebugLog
 import com.miunlock.app.ui.theme.MiOrange
 import com.miunlock.app.ui.theme.MiOrangeSoft
 import com.miunlock.app.ui.theme.MiUnlockTheme
+import com.miunlock.app.ui.BackArrow
 import com.miunlock.app.ui.LocalLanguage
+import com.miunlock.app.ui.RootScreen
 import com.miunlock.app.ui.tr
 import kotlinx.coroutines.delay
 import java.time.Instant
@@ -130,7 +132,7 @@ class MainActivity : ComponentActivity() {
                 val vm: MainViewModel = viewModel()
                 val state by vm.state.collectAsStateWithLifecycle()
                 CompositionLocalProvider(LocalLanguage provides state.settings.language) {
-                    MiUnlockScreen(state, vm::dispatch)
+                    RootScreen(state, vm::dispatch)
                 }
             }
         }
@@ -150,13 +152,17 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
+fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () -> Unit = {}) {
     val snackbar = remember { SnackbarHostState() }
     val context = LocalContext.current
     var showSettings by rememberSaveable { mutableStateOf(false) }
     var showConsole by rememberSaveable { mutableStateOf(false) }
-    BackHandler(enabled = showConsole || showSettings) {
-        if (showConsole) showConsole = false else showSettings = false
+    BackHandler(enabled = true) {
+        when {
+            showConsole -> showConsole = false
+            showSettings -> showSettings = false
+            else -> onHome()
+        }
     }
     val openNotificationSettings = {
         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
@@ -210,7 +216,7 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
                 contentPadding = PaddingValues(horizontal = 18.dp, vertical = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                item { Header(onConsole = { showConsole = true }, onGitHub = {
+                item { Header(onHome = onHome, onConsole = { showConsole = true }, onGitHub = {
                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Matvel007/MiUnlockApp")))
                 }) }
                 item { DualClockCard() }
@@ -230,7 +236,7 @@ private fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
 }
 
 @Composable
-private fun Header(onConsole: () -> Unit, onGitHub: () -> Unit) {
+private fun Header(onHome: () -> Unit = {}, onConsole: () -> Unit, onGitHub: () -> Unit) {
     val transition = rememberInfiniteTransition(label = "github")
     val scale by transition.animateFloat(
         initialValue = 0.96f,
@@ -239,6 +245,7 @@ private fun Header(onConsole: () -> Unit, onGitHub: () -> Unit) {
         label = "githubScale",
     )
     Row(verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onHome) { BackArrow() }
         Text("MiUnlockApp", style = MaterialTheme.typography.displaySmall)
         Spacer(Modifier.weight(1f))
         IconButton(onClick = onConsole) {

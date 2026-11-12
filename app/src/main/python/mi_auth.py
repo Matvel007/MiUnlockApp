@@ -144,7 +144,16 @@ def exchange(sid):
     token = response.cookies.get("new_bbs_serviceToken")
     if not token:
         return _reply({"ok": False, "error": _message("Mi Community не выдал new_bbs_serviceToken", "Mi Community did not provide new_bbs_serviceToken")})
-    return _reply({"ok": True, "token": token, "deviceId": required["deviceId"]})
+    # Для режима разблокировки нужны ещё ssecurity, userId и cookies сервисной
+    # сессии: unlock.update.* подписывает каждый запрос ключом из ssecurity.
+    return _reply({
+        "ok": True,
+        "token": token,
+        "deviceId": required["deviceId"],
+        "userId": required["userId"],
+        "ssecurity": ssecurity,
+        "cookies": service.cookies.get_dict(),
+    })
 
 
 def qr_request(auth_data_json):

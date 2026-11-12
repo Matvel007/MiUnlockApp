@@ -78,6 +78,9 @@ class MiLoginActivity : ComponentActivity() {
     private var qrBitmap by mutableStateOf<Bitmap?>(null)
     private var qrStatus by mutableStateOf("")
 
+    /** `apply` — режим заявки, `unlock` — режим разблокировки со своей сессией. */
+    private var mode = "apply"
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
@@ -88,6 +91,7 @@ class MiLoginActivity : ComponentActivity() {
         }
         hideStatusBars()
         language = savedInstanceState?.getString("language") ?: intent.getStringExtra("language") ?: "ru"
+        mode = savedInstanceState?.getString("mode") ?: intent.getStringExtra("mode") ?: "apply"
         account = savedInstanceState?.getString("account").orEmpty()
         status = savedInstanceState?.getString("status") ?: t("Введите Xiaomi ID, email или телефон и пароль.", "Enter Xiaomi ID, email or phone and password.")
         verificationMethods = savedInstanceState?.getStringArrayList("verificationMethods")?.toList().orEmpty()
@@ -132,6 +136,7 @@ class MiLoginActivity : ComponentActivity() {
         outState.putString("selectedMethod", selectedMethod)
         outState.putBoolean("codeSent", codeSent)
         outState.putString("language", language)
+        outState.putString("mode", mode)
         super.onSaveInstanceState(outState)
     }
 
@@ -218,6 +223,10 @@ class MiLoginActivity : ComponentActivity() {
 
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
+        if (mode == "unlock") {
+            finishUnlockLogin()
+            return
+        }
         val (token, deviceId) = auth.exchange(SID)
         DebugLog.add("Mi Community session exchanged")
         val store = (application as MiUnlockApp).container.settingsStore
@@ -235,6 +244,33 @@ class MiLoginActivity : ComponentActivity() {
         finish()
     }
 
+    /**
+     * Вход в режиме разблокировки: сессия ложится в отдельное хранилище
+     * и не трогает сессию заявки.
+     */
+    private suspend fun finishUnlockLogin() {
+        val login = auth.exchangeFull(SID)
+        if (login.ssecurity.isBlank() || login.userId.isBlank()) {
+            error(t("Сервер не выдал ssecurity", "Server did not provide ssecurity"))
+        }
+        val container = (application as MiUnlockApp).container
+        val current = container.unlockStore.session()
+        container.unlockStore.saveSession(
+            current.copy(
+                serviceToken = login.serviceToken,
+                ssecurity = login.ssecurity,
+                userId = login.userId,
+                deviceId = login.deviceId,
+                cookies = login.cookies,
+            ),
+        )
+        DebugLog.add("Разблокировка: сессия Mi Account получена")
+        password = ""
+        Toast.makeText(this, t("Вход выполнен", "Signed in"), Toast.LENGTH_LONG).show()
+        setResult(RESULT_OK)
+        finish()
+    }
+
     private suspend fun clearSavedCredentials() {
         val store = (application as MiUnlockApp).container.settingsStore
         val current = store.current()
@@ -242,7 +278,8 @@ class MiLoginActivity : ComponentActivity() {
     }
 
     private suspend fun configureAuthProxy(): com.miunlock.app.domain.ProxySettings {
-        val proxy = (application as MiUnlockApp).container.settingsStore.current().proxy
+        val container = (application as MiUnlockApp).container
+        val proxy = if (mode == "unlock") container.unlockStore.proxy() else container.settingsStore.current().proxy
         auth.setProxy(proxy)
         DebugLog.add(if (proxy.isEnabled) "Авторизация Xiaomi через HTTP-прокси" else "Авторизация Xiaomi без прокси")
         return proxy

@@ -21,10 +21,15 @@ android {
         applicationId = "com.miunlock.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 5
-        versionName = "1.3"
+        versionCode = 6
+        versionName = "1.4"
         vectorDrawables { useSupportLibrary = true }
-        ndk { abiFilters += listOf("arm64-v8a", "armeabi-v7a") }
+        // Основная сборка — только ARM. Для отладки на эмуляторе ABI можно
+        // переопределить: -PabiFilters=x86_64
+        val abis = (project.findProperty("abiFilters") as String?)
+            ?.split(',')?.map { it.trim() }?.filter { it.isNotEmpty() }
+            ?: listOf("arm64-v8a", "armeabi-v7a")
+        ndk { abiFilters += abis }
     }
 
     signingConfigs {

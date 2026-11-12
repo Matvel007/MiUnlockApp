@@ -2,10 +2,10 @@
 
 # MiUnlockApp
 
-**A simple companion for preparing a Xiaomi bootloader-unlock application.**
+**A companion for applying to unlock a Xiaomi bootloader and for unlocking it straight from a phone.**
 
 [![Русский](https://img.shields.io/badge/README-%D0%A0%D1%83%D1%81%D1%81%D0%BA%D0%B8%D0%B9-ff6900)](README_RU.md)
-[![Version](https://img.shields.io/badge/version-1.3-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
+[![Version](https://img.shields.io/badge/version-1.4-ff6900)](https://github.com/Matvel007/MiUnlockApp/releases)
 
 </div>
 
@@ -15,11 +15,25 @@
 ## Screenshots
 
 <div align="center">
-  <img src="Screenshots/main.jpg" width="160" alt="Main screen">
+  <img src="Screenshots/Меню%20выбора%20режима.png" width="160" alt="Mode selection">
+  <img src="Screenshots/Разблокировка%20загрузчика.png" width="160" alt="Bootloader unlock">
+  <img src="Screenshots/Настройки%20разблокировки.png" width="160" alt="Unlock settings">
+  <img src="Screenshots/main.jpg" width="160" alt="Application mode">
   <img src="Screenshots/settings.jpg" width="160" alt="Settings screen">
 </div>
 
 ## What It Does
+
+Two independent modes: **unlock application** and **bootloader unlock**.
+
+Unlock mode:
+
+- Works like a PC: the target phone is connected to this phone over an OTG cable in fastboot.
+- Its own Mi Account session, separate from the application mode.
+- Reads the device token, checks the data wipe, gets the Xiaomi signature and hands it to the bootloader.
+- Asks for confirmation before the irreversible step and logs every stage.
+
+Application mode:
 
 - Sign in with a Xiaomi Account directly in the app, including QR sign-in.
 - Check whether the account is ready for an unlock application.
@@ -29,7 +43,7 @@
 - Stay active in the background with the screen off.
 - Show a live status in notifications, including a stop button.
 - Open the built-in debug console for safe diagnostic events.
-- Display Russian or English with one tap.
+- Switch between Russian and English in the settings of either mode.
 - Keep account details on the device only.
 - Run on both 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.
 
@@ -43,9 +57,23 @@
 
 - Android 8.0 (API 26) or newer.
 - ARM processors: **arm64-v8a** (ARMv8, 64-bit) and **armeabi-v7a** (ARMv7, 32-bit).
-- x86/x86_64 phones and emulators are not supported: the APK ships only ARM native libraries.
+- x86/x86_64 phones are not supported: the APK ships only ARM native libraries.
+- Unlock mode needs USB host (OTG): the target phone is connected to this phone.
 
 ## How To Use
+
+The app opens with the mode selection screen.
+
+### Bootloader unlock
+
+1. Pick **Bootloader unlock**.
+2. Sign in to Mi Account — this is a separate session.
+3. Put the target phone into fastboot (power off, then hold Volume Down and Power).
+4. Connect it to this phone with an OTG cable.
+5. Tap **Find device** and allow USB access.
+6. Tap **Unlock** and confirm the data wipe.
+
+### Unlock application
 
 1. Open **Settings** and tap **Enable notifications**.
 2. Tap **Disable battery optimization** and allow it.
