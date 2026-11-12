@@ -333,6 +333,8 @@ def exchange(sid):
         "hasNonce": bool(nonce),
         "hasSsecurity": bool(ssecurity),
         "hasLocation": bool(location),
+        "securityStatus": first.get("securityStatus") if first else None,
+        "notification": (first.get("notificationUrl") or "")[:80] if first else "",
         "cookies": len(cookies),
         "attempts": attempts,
     }

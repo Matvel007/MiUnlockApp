@@ -127,9 +127,23 @@ internal fun unlockHint(code: Int?): Bilingual? = when (code) {
         "Сервер счёл запрос устаревшим. Нажмите «Разблокировать» ещё раз.",
         "The server treated the request as stale. Tap “Unlock” again.",
     )
-    20031, 20032 -> Bilingual(
-        "Аккаунт не имеет права на разблокировку. Проверьте, что он подходит под условия Xiaomi.",
-        "This account is not allowed to unlock. Check that it meets Xiaomi's requirements.",
+    20031 -> Bilingual(
+        "Аккаунт не добавлен в статус разблокировки на самом устройстве. На телефоне: " +
+            "Настройки → О телефоне → 7 раз нажать на версию HyperOS → Настройки → " +
+            "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi → " +
+            "«Добавить аккаунт и устройство». Нужны SIM-карта и интернет. После добавления " +
+            "Xiaomi запускает отсчёт: обычно 168 часов, у части устройств меньше.",
+        "The account is not added to Mi Unlock status on the device itself. On the phone: " +
+            "Settings → About phone → tap the HyperOS version 7 times → Settings → " +
+            "Additional settings → Developer options → Mi Unlock status → " +
+            "“Add account and device”. A SIM card and internet are required. After that " +
+            "Xiaomi starts the waiting period: usually 168 hours, less on some devices.",
+    )
+    20032 -> Bilingual(
+        "Xiaomi не принял привязку. Проверьте, что на телефоне включён тот же аккаунт, " +
+            "что и в приложении, вставлена SIM-карта и есть интернет.",
+        "Xiaomi rejected the binding. Make sure the phone is signed in to the same account " +
+            "as the app, with a SIM card inserted and internet available.",
     )
     else -> null
 }

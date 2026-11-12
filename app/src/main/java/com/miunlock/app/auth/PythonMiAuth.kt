@@ -213,6 +213,13 @@ class PythonMiAuth(context: Context) {
                 LogTag.AUTH,
                 "обмен $sid: ключ ${d.optString("keySource")}, cookies ${d.opt("cookies")} | $attempts",
             )
+            DebugLog.add(
+                LogLevel.INFO,
+                LogTag.AUTH,
+                "проверка личности: securityStatus ${d.optInt("securityStatus")}, " +
+                    "требуется подтверждение " +
+                    if (d.optString("notification").isBlank()) "нет" else "да — ${d.optString("notification")}",
+            )
             if (d.has("stsStatus") || d.has("sts")) {
                 val names = d.optJSONArray("stsCookies")?.let { a -> List(a.length()) { a.optString(it) } }
                     ?.joinToString().orEmpty()
