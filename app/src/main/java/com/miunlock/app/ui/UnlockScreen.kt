@@ -128,12 +128,12 @@ internal fun unlockHint(code: Int?): Bilingual? = when (code) {
         "The server treated the request as stale. Tap “Unlock” again.",
     )
     20031 -> Bilingual(
-        "Xiaomi не видит привязки аккаунта к этому устройству. Приложение уже проверило " +
-            "все дата-центры, так что дело не в зоне. На телефоне: Настройки → " +
+        "Xiaomi не видит привязки аккаунта к этому устройству. Приложение уже перебрало все " +
+            "дата-центры Xiaomi, так что остаётся привязка. На телефоне: Настройки → " +
             "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi → " +
             "«Добавить аккаунт и устройство». Аккаунт должен быть тот же, что здесь.",
         "Xiaomi does not see the account bound to this device. The app has already tried " +
-            "every data centre, so the zone is not the issue. On the phone: Settings → " +
+            "every Xiaomi data centre, so what remains is the binding. On the phone: Settings → " +
             "Additional settings → Developer options → Mi Unlock status → " +
             "“Add account and device”. It must be the same account as here.",
     )
