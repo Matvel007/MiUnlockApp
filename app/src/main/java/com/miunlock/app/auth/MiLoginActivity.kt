@@ -55,6 +55,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import com.miunlock.app.MiUnlockApp
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.Credentials
 import com.miunlock.app.service.QrLoginService
 import com.miunlock.app.ui.theme.MiOrange
@@ -169,7 +170,13 @@ class MiLoginActivity : ComponentActivity() {
                 // В режиме разблокировки сессия заявки неприкосновенна: неудачный
                 // вход сюда не должен выкидывать человека из первого режима.
                 if (mode != MODE_UNLOCK) clearSavedCredentials()
-                val result = auth.login(account, password, currentSid(), language)
+                val result = auth.login(
+                    account,
+                    password,
+                    currentSid(),
+                    language,
+                    safeAddress = mode == MODE_UNLOCK,
+                )
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
                     val method = result.verificationMethods.firstOrNull { it == "EM" }
@@ -179,6 +186,7 @@ class MiLoginActivity : ComponentActivity() {
                     finishLogin()
                 }
             } catch (e: Exception) {
+                DebugLog.error(LogTag.AUTH, "вход ${currentSid()}: ${e.message ?: e::class.simpleName}")
                 status = friendlyError(t("Ошибка входа", "Sign in error"), e)
             } finally {
                 working = false
@@ -216,6 +224,7 @@ class MiLoginActivity : ComponentActivity() {
                     finishLogin()
                 }
             } catch (e: Exception) {
+                DebugLog.error(LogTag.AUTH, "проверка кода ${currentSid()}: ${e.message ?: e::class.simpleName}")
                 status = friendlyError(t("Код не принят", "Code was rejected"), e)
             } finally {
                 working = false
@@ -223,11 +232,8 @@ class MiLoginActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Вход в аккаунт всегда через Mi Community: пароль и код подтверждения
-     * работают только на нём. Нужный сервис подключается позже, обменом.
-     */
-    private fun currentSid(): String = SID_APPLY
+    /** У разблокировки свой сервис: от него зависит ключ подписи запросов. */
+    private fun currentSid(): String = if (mode == MODE_UNLOCK) SID_UNLOCK else SID_APPLY
 
     private suspend fun finishLogin() {
         status = t("Получаю Mi Community token...", "Getting Mi Community token...")
@@ -381,9 +387,9 @@ class MiLoginActivity : ComponentActivity() {
         private const val SID_APPLY = "18n_bbs_global"
 
         /**
-         * Сервис разблокировки. Вход всегда идёт через [SID_APPLY]: этот путь
-         * с паролем и кодом проверен. Токен под разблокировку выдается отдельно,
-         * обменом passToken на сервисную сессию (см. finishUnlockLogin).
+         * Сервис разблокировки. Вход идёт с `checkSafeAddress=true`:
+         * без него Xiaomi принимает пароль, но не принимает код
+         * подтверждения и не выдаёт ключ подписи.
          */
         private const val SID_UNLOCK = "unlockApi"
 

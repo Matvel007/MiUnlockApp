@@ -80,14 +80,21 @@ def _finish_auth(response, sid):
     return {"ok": True, "verification": []}
 
 
-def login(user, password, sid):
+def login(user, password, sid, safe_address="false"):
     global auth_data, verification_context
     session.cookies.clear()
     verification_context = None
-    initial = _json(session.get(SERVICE_LOGIN, params={"sid": sid, "_json": True}))
+    # checkSafeAddress меняет serviceParam и _sign: подпись входа считается
+    # от этих параметров. Сервис разблокировки требует его включённым,
+    # иначе код подтверждения не принимается.
+    params = {"sid": sid, "_json": True}
+    if safe_address == "true":
+        params["checkSafeAddress"] = "true"
+    initial = _json(session.get(SERVICE_LOGIN, params=params))
     auth_data = {
         "sid": sid,
         "_json": True,
+        "checkSafeAddress": "true" if safe_address == "true" else "false",
         "serviceParam": initial["serviceParam"],
         "qs": initial["qs"],
         "callback": initial["callback"],

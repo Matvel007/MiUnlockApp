@@ -58,9 +58,20 @@ class PythonMiAuth(context: Context) {
         Python.getInstance().getModule("mi_auth")
     }
 
-    suspend fun login(user: String, password: String, sid: String, language: String): PythonLoginResult {
+    /**
+     * @param safeAddress включает проверку безопасного адреса. Сервис
+     * разблокировки требует её включённой: от этого зависят `serviceParam`
+     * и `_sign`, а с ними и приём кода подтверждения.
+     */
+    suspend fun login(
+        user: String,
+        password: String,
+        sid: String,
+        language: String,
+        safeAddress: Boolean = false,
+    ): PythonLoginResult {
         call("set_language", language)
-        return callLogin("login", user, password, sid)
+        return callLogin("login", user, password, sid, if (safeAddress) "true" else "false")
     }
 
     suspend fun setProxy(proxy: ProxySettings) {
