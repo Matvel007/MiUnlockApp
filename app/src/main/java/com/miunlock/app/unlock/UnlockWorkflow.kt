@@ -324,6 +324,18 @@ class UnlockWorkflow(
                     LogLevel.INFO, LogTag.API,
                     "ahaUnlock: отказ ${aha.code}, поля ответа: $fields",
                 )
+                // Сервер называет uid, под которым оценивал запрос. Если он
+                // расходится с uid сессии — устройство привязано к другому
+                // аккаунту, и привязку надо делать тем, что в приложении.
+                val answered = aha.json.optString("uid")
+                if (answered.isNotBlank()) {
+                    val same = answered == session.userId
+                    DebugLog.add(
+                        LogLevel.INFO, LogTag.API,
+                        "ahaUnlock: uid сервера $answered, uid сессии ${session.userId} — " +
+                            if (same) "совпадают" else "РАЗНЫЕ аккаунты",
+                    )
+                }
                 return UnlockOutcome.Failure(UnlockStep.AHA, aha.desc, aha.code)
             }
             val encryptData = aha.json.optString("encryptData")
