@@ -30,9 +30,11 @@ class AdbClient(
         const val SUBCLASS = 0x42
         const val PROTOCOL_ADB = 0x01
 
+        /** Обычный ответ телефона приходит быстро. */
         private const val TIMEOUT_MS = 8_000
+        /** После отправки ключа телефон показывает диалог: человек должен успеть нажать. */
+        private const val AUTH_TIMEOUT_MS = 60_000
         private const val BUFFER = 4096
-        private const val MAX_PACKET = 1024 * 1024
         const val ACTION_PERMISSION = "com.miunlock.app.ADB_USB_PERMISSION"
     }
 
@@ -42,6 +44,7 @@ class AdbClient(
     private var epIn: UsbEndpoint? = null
     private var epOut: UsbEndpoint? = null
     private var device: UsbDevice? = null
+    private val framer = AdbFramer()
 
     val isOpen: Boolean get() = connection != null
 
@@ -136,43 +139,76 @@ class AdbClient(
     }
 
     /**
-     * Рукопожатие: CNXN → AUTH(подпись) → при отказе AUTH(публичный ключ).
-     * Возвращает true, если телефон авторизовал нас.
+     * Рукопожатие с телефоном.
+     *
+     * По протоколу: хост шлёт CNXN; телефон, если не знает нас, отвечает
+     * `AUTH` с токеном. Хост подписывает токен и отправляет `AUTH` с подписью.
+     * Если подпись не подошла, телефон присылает **новый токен** — тогда надо
+     * отдать публичный ключ, и только после этого он покажет диалог «Разрешить
+     * отладку по USB?». Ответ на всё это — CNXN.
      */
-    fun connect(): Result<Unit> {
-        val conn = connection ?: return Result.failure(IllegalStateException("устройство не открыто"))
+    fun connect(): Result<Unit> = kotlinx.coroutines.runBlocking { connectSuspend() }
+
+    suspend fun connectSuspend(): Result<Unit> {
         val keys = AdbKey(keyDir)
         val pair = keys.loadOrCreate()
         val privateKey = pair.private as RSAPrivateKey
         val publicKey = pair.public as RSAPublicKey
 
+        framer.reset()
         send(AdbPacket.encode(AdbPacket.CNXN, AdbPacket.VERSION, AdbPacket.MAX_DATA, AdbPacket.payload("host::")))
             .getOrElse { return Result.failure(it) }
+        log("ADB → CNXN host::")
 
+        var signatureSent = false
         var keySent = false
-        repeat(6) {
-            val packet = read().getOrElse { return Result.failure(it) }
+        repeat(8) {
+            val packet = readPacket(if (keySent) AUTH_TIMEOUT_MS else TIMEOUT_MS).getOrElse { error ->
+                return Result.failure(
+                    IllegalStateException(
+                        if (keySent) {
+                            "телефон не подтвердил отладку. Разрешите доступ на его экране и повторите"
+                        } else {
+                            "телефон не отвечает: ${error.message}"
+                        },
+                    ),
+                )
+            }
+            log("ADB ← ${name(packet.command)} arg0=${packet.arg0} data=${packet.data.size}b")
             when (packet.command) {
                 AdbPacket.CNXN -> return Result.success(Unit)
+                AdbPacket.CLSE -> return Result.failure(
+                    IllegalStateException("телефон закрыл соединение — разрешите отладку на его экране"),
+                )
                 AdbPacket.AUTH -> when (packet.arg0) {
+                    // Новый токен: сначала пробуем подпись, потом отдаём ключ.
                     AdbPacket.AUTH_TOKEN -> {
-                        if (!keySent) {
+                        if (!signatureSent) {
                             val signature = keys.signToken(packet.data, privateKey)
                             send(AdbPacket.encode(AdbPacket.AUTH, AdbPacket.AUTH_SIGNATURE, 0, signature))
                                 .getOrElse { return Result.failure(it) }
+                            signatureSent = true
+                            log("ADB → AUTH SIGNATURE")
+                        } else if (!keySent) {
+                            val public = keys.encodePublic(publicKey, "miunlockapp@android")
+                            send(AdbPacket.encode(AdbPacket.AUTH, AdbPacket.AUTH_RSAPUBLICKEY, 0, public))
+                                .getOrElse { return Result.failure(it) }
+                            keySent = true
+                            log("ADB → AUTH RSAPUBLICKEY (${public.size}b), ждём подтверждения на телефоне")
                         } else {
                             return Result.failure(
-                                IllegalStateException("телефон не принял ключ: подтвердите отладку на его экране"),
+                                IllegalStateException("телефон отклонил ключ — удалите старое разрешение отладки и повторите"),
                             )
                         }
                     }
-                    AdbPacket.AUTH_SIGNATURE -> {
+                    // Телефон просит ключ сразу.
+                    else -> if (!keySent) {
                         val public = keys.encodePublic(publicKey, "miunlockapp@android")
                         send(AdbPacket.encode(AdbPacket.AUTH, AdbPacket.AUTH_RSAPUBLICKEY, 0, public))
                             .getOrElse { return Result.failure(it) }
                         keySent = true
+                        log("ADB → AUTH RSAPUBLICKEY (${public.size}b)")
                     }
-                    else -> Unit
                 }
                 else -> Unit
             }
@@ -185,7 +221,7 @@ class AdbClient(
         send(AdbPacket.encode(AdbPacket.OPEN, 1, 0, AdbPacket.payload("reboot:bootloader")))
             .getOrElse { return Result.failure(it) }
         repeat(4) {
-            val packet = read().getOrElse { return Result.success(Unit) }
+            val packet = readPacket().getOrElse { return Result.success(Unit) }
             when (packet.command) {
                 AdbPacket.OKAY -> return Result.success(Unit)
                 AdbPacket.CLSE -> return Result.failure(IllegalStateException("телефон закрыл команду"))
@@ -208,45 +244,38 @@ class AdbClient(
         return Result.success(Unit)
     }
 
-    private fun read(): Result<AdbPacket> {
+    /**
+     * Читает следующий пакет. Данные копятся в [framer], потому что USB может
+     * отдать половину пакета или сразу два — резать поток «ровно по размеру»
+     * нельзя, иначе разбор уезжает.
+     */
+    private fun readPacket(timeoutMs: Int = TIMEOUT_MS): Result<AdbPacket> {
+        framer.next()?.let { return Result.success(it) }
         val conn = connection ?: return Result.failure(IllegalStateException("устройство не открыто"))
         val input = epIn ?: return Result.failure(IllegalStateException("нет IN-эндпоинта"))
-        // Один bulkTransfer может вернуть меньше, чем просили, поэтому заголовок
-        // и тело дочитываются циклами: иначе поток уезжает на середину пакета.
-        val header = ByteArray(AdbPacket.HEADER)
-        if (!readInto(conn, input, header, 0, AdbPacket.HEADER)) {
-            return Result.failure(IllegalStateException("нет ответа от телефона"))
+        val chunk = ByteArray(BUFFER)
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            val read = conn.bulkTransfer(input, chunk, chunk.size, TIMEOUT_MS)
+            if (read < 0) return Result.failure(IllegalStateException("телефон не ответил"))
+            if (read == 0) continue
+            framer.feed(chunk, read)
+            framer.next()?.let { return Result.success(it) }
         }
-        val size = java.nio.ByteBuffer.wrap(header, 16, 4)
-            .order(java.nio.ByteOrder.LITTLE_ENDIAN).int
-        if (size < 0 || size > MAX_PACKET) {
-            return Result.failure(IllegalStateException("битый пакет ADB: длина $size"))
-        }
-        val full = ByteArray(AdbPacket.HEADER + size)
-        header.copyInto(full)
-        if (size > 0 && !readInto(conn, input, full, AdbPacket.HEADER, size)) {
-            return Result.failure(IllegalStateException("пакет ADB не дочитан"))
-        }
-        val packet = AdbPacket.decode(full, full.size)
-            ?: return Result.failure(IllegalStateException("битый пакет ADB"))
-        return Result.success(packet)
+        return Result.failure(IllegalStateException("нет ответа от телефона"))
     }
 
-    /** Читает ровно [count] байт в [dest] начиная с [offset]; false — таймаут. */
-    private fun readInto(
-        conn: UsbDeviceConnection,
-        input: UsbEndpoint,
-        dest: ByteArray,
-        offset: Int,
-        count: Int,
-    ): Boolean {
-        var done = 0
-        while (done < count) {
-            val chunk = minOf(BUFFER, count - done)
-            val read = conn.bulkTransfer(input, dest, offset + done, chunk, TIMEOUT_MS)
-            if (read <= 0) return false
-            done += read
-        }
-        return true
+    private fun log(message: String) {
+        runCatching { com.miunlock.app.data.DebugLog.add(message) }
+    }
+
+    private fun name(command: Int): String = when (command) {
+        AdbPacket.CNXN -> "CNXN"
+        AdbPacket.AUTH -> "AUTH"
+        AdbPacket.OPEN -> "OPEN"
+        AdbPacket.OKAY -> "OKAY"
+        AdbPacket.CLSE -> "CLSE"
+        AdbPacket.WRTE -> "WRTE"
+        else -> "0x%08X".format(command)
     }
 }
