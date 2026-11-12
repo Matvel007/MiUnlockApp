@@ -1,6 +1,9 @@
 package com.miunlock.app.unlock
 
 import android.hardware.usb.UsbDevice
+import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogLevel
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.fastboot.FastbootCodec
 import com.miunlock.app.fastboot.FastbootUsb
 
@@ -112,7 +115,10 @@ class UnlockWorkflow(
         listener: Listener,
         onConfirmClear: suspend (cleanOrNot: Boolean, notice: String) -> Boolean = { _, _ -> true },
     ): UnlockOutcome {
-        fun step(s: UnlockStep, ru: String, en: String) = listener.onProgress(UnlockProgress(s, ru, en))
+        fun step(s: UnlockStep, ru: String, en: String) {
+            DebugLog.add(LogLevel.INFO, LogTag.APP, "шаг $s: $ru")
+            listener.onProgress(UnlockProgress(s, ru, en))
+        }
 
         step(UnlockStep.DEVICE, "Открываю USB-устройство", "Opening the USB device")
         usb.open(device).getOrElse {
@@ -135,6 +141,7 @@ class UnlockWorkflow(
 
             step(UnlockStep.NONCE, "Запрашиваю nonce", "Requesting a nonce")
             val nonce1 = api.nonce(domain, session.ssecurity, session.cookies)
+            DebugLog.trace(LogTag.API, "nonce: код ${nonce1.code} ${nonce1.desc}")
             if (!nonce1.isOk) {
                 return UnlockOutcome.Failure(UnlockStep.NONCE, nonce1.desc, nonce1.code)
             }
@@ -145,6 +152,7 @@ class UnlockWorkflow(
 
             step(UnlockStep.CLEAR, "Проверяю, будут ли стёрты данные", "Checking whether data will be wiped")
             val clear = api.deviceClear(domain, product, nonce, session.ssecurity, session.cookies)
+            DebugLog.trace(LogTag.API, "device/clear: код ${clear.code} ${clear.desc}")
             if (!clear.isOk) {
                 return UnlockOutcome.Failure(UnlockStep.CLEAR, clear.desc, clear.code)
             }
@@ -174,6 +182,7 @@ class UnlockWorkflow(
                 userId = session.userId,
                 cookies = session.cookies,
             )
+            DebugLog.trace(LogTag.API, "ahaUnlock: код ${aha.code} ${aha.desc}")
             if (!aha.isOk) {
                 return UnlockOutcome.Failure(UnlockStep.AHA, aha.desc, aha.code)
             }
@@ -183,6 +192,7 @@ class UnlockWorkflow(
             }
 
             step(UnlockStep.STAGE, "Передаю подпись в загрузчик", "Uploading the signature to the bootloader")
+            DebugLog.trace(LogTag.APP, "encryptData: ${encryptData.length} символов hex")
             val bytes = runCatching { UnlockCrypto.hexToBytes(encryptData) }.getOrElse {
                 return UnlockOutcome.Failure(UnlockStep.STAGE, "encryptData не hex")
             }

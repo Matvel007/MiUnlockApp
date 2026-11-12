@@ -43,7 +43,7 @@ Application mode:
 - Optionally route Xiaomi Account sign-in, API checks, and the application request through an HTTP proxy.
 - Stay active in the background with the screen off.
 - Show a live status in notifications, including a stop button.
-- Open the built-in debug console for safe diagnostic events.
+- Detailed log of every step with a “Copy full log” button — if something fails, the whole log is one tap away.
 - Switch between Russian and English in the settings of either mode.
 - Keep account details on the device only.
 - Run on both 64-bit (arm64-v8a) and 32-bit (armeabi-v7a) ARM devices.

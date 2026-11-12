@@ -3,6 +3,7 @@ package com.miunlock.app.ui
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -10,6 +11,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.miunlock.app.BuildConfig
 import com.miunlock.app.domain.AppIntent
+import com.miunlock.app.data.DebugLog
 import com.miunlock.app.domain.AppState
 
 /** Экраны приложения. Стартовый — выбор режима. */
@@ -25,6 +27,20 @@ private const val REPO_URL = "https://github.com/Matvel007/MiUnlockApp"
 fun RootScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
     var screen by rememberSaveable { mutableStateOf(Screen.HOME) }
     val context = LocalContext.current
+    val language = LocalLanguage.current
+
+    // Шапка лога должна говорить, какой режим открыт и на каком языке интерфейс:
+    // без этого присланный лог не расшифровать.
+    LaunchedEffect(screen, language) {
+        DebugLog.setMode(
+            when (screen) {
+                Screen.HOME -> "home"
+                Screen.APPLY -> "apply"
+                Screen.UNLOCK -> "unlock"
+            },
+        )
+        DebugLog.setLanguage(language)
+    }
 
     when (screen) {
         Screen.HOME -> HomeScreen(

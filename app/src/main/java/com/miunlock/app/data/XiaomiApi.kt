@@ -11,7 +11,6 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.Credentials as OkHttpCredentials
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.Response
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
 import java.time.Instant
@@ -26,9 +25,15 @@ class XiaomiApi {
         DebugLog.add("Xiaomi state request через ${routeName(proxy)}")
         val request = Request.Builder().url(STATE_URL).headers(credentials).get().build()
         client(proxy).newCall(request).execute().use { response ->
-            DebugLog.add("Xiaomi state response: HTTP ${response.code}")
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            parseState(response.readJson())
+            val raw = response.body?.string().orEmpty()
+            DebugLog.add("Xiaomi state response: HTTP ${response.code}, ${raw.length} байт")
+            if (!response.isSuccessful) {
+                // Тело ответа при ошибке — единственное, что объясняет причину
+                // (блокировка, капча, регион), поэтому оно идёт в журнал.
+                DebugLog.error(LogTag.API, "state HTTP ${response.code}: ${raw.take(400)}")
+                error("HTTP ${response.code}")
+            }
+            parseState(JSONObject(raw))
         }
     }
 
@@ -36,7 +41,9 @@ class XiaomiApi {
         DebugLog.add("Прогрев Xiaomi-соединения через ${routeName(proxy)}")
         runCatching {
             val request = Request.Builder().url(STATE_URL).headers(credentials).get().build()
-            client(proxy).newCall(request).execute().close()
+            client(proxy).newCall(request).execute().use { response ->
+                DebugLog.trace(LogTag.API, "прогрев: HTTP ${response.code}")
+            }
         }
         Unit
     }
@@ -46,9 +53,14 @@ class XiaomiApi {
         val body = "{\"is_retry\":true}".toRequestBody(JSON)
         val request = Request.Builder().url(APPLY_URL).headers(credentials).post(body).build()
         client(proxy).newCall(request).execute().use { response ->
-            DebugLog.add("Ответ заявки Xiaomi: HTTP ${response.code}")
-            if (!response.isSuccessful) error("HTTP ${response.code}")
-            parseApply(response.readJson())
+            val raw = response.body?.string().orEmpty()
+            DebugLog.add("Ответ заявки Xiaomi: HTTP ${response.code}, ${raw.length} байт")
+            if (!response.isSuccessful) {
+                DebugLog.error(LogTag.API, "apply HTTP ${response.code}: ${raw.take(400)}")
+                error("HTTP ${response.code}")
+            }
+            DebugLog.trace(LogTag.API, "apply body: ${raw.take(600)}")
+            parseApply(JSONObject(raw))
         }
     }
 
@@ -159,11 +171,6 @@ class XiaomiApi {
         100004 -> "Требуется повторный вход"
         100009 -> "Аккаунт заблокирован"
         else -> "$fallback (код $code)"
-    }
-
-    private fun Response.readJson(): JSONObject {
-        val raw = body?.string().orEmpty()
-        return JSONObject(raw)
     }
 
     companion object {

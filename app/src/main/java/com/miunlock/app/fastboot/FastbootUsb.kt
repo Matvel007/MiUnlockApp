@@ -12,6 +12,8 @@ import android.hardware.usb.UsbEndpoint
 import android.hardware.usb.UsbInterface
 import android.hardware.usb.UsbManager
 import android.os.Build
+import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogTag
 import java.nio.charset.StandardCharsets
 
 /**
@@ -136,12 +138,29 @@ class FastbootUsb(private val context: Context) {
             }
         }
 
-        val intf = chosen ?: return Result.failure(IllegalStateException("не найдены bulk-эндпоинты fastboot"))
-        val conn = usb.openDevice(dev) ?: return Result.failure(IllegalStateException("не удалось открыть устройство"))
+        val intf = chosen ?: return Result.failure(
+            IllegalStateException("не найдены bulk-эндпоинты fastboot").also {
+                DebugLog.error(LogTag.USB, "open: нет bulk-эндпоинтов ни в одном интерфейсе")
+            },
+        )
+        DebugLog.trace(
+            LogTag.USB,
+            "open: интерфейс #${intf.id} ${"%02X/%02X/%02X".format(
+                intf.interfaceClass, intf.interfaceSubclass, intf.interfaceProtocol,
+            )} IN=${inEp?.address} OUT=${outEp?.address} " +
+                "maxPacket IN=${inEp?.maxPacketSize} OUT=${outEp?.maxPacketSize}",
+        )
+        val conn = usb.openDevice(dev) ?: return Result.failure(
+            IllegalStateException("не удалось открыть устройство").also {
+                DebugLog.error(LogTag.USB, "open: openDevice вернул null")
+            },
+        )
         if (!conn.claimInterface(intf, true)) {
             conn.close()
+            DebugLog.error(LogTag.USB, "open: claimInterface отклонён — интерфейс занят")
             return Result.failure(IllegalStateException("интерфейс занят другим приложением"))
         }
+        DebugLog.trace(LogTag.USB, "open: интерфейс захвачен, fd=${conn.fileDescriptor}")
         connection = conn
         iface = intf
         epIn = inEp
@@ -165,8 +184,10 @@ class FastbootUsb(private val context: Context) {
         val conn = connection ?: return Result.failure(IllegalStateException("устройство не открыто"))
         val out = epOut ?: return Result.failure(IllegalStateException("нет OUT-эндпоинта"))
         val cmd = runCatching { FastbootCodec.buildCommand(command) }.getOrElse { return Result.failure(it) }
+        DebugLog.trace(LogTag.FASTBOOT, "→ $command")
         val sent = conn.bulkTransfer(out, cmd, cmd.size, timeoutMs)
         if (sent != cmd.size) {
+            DebugLog.error(LogTag.FASTBOOT, "→ $command: запись не прошла, $sent из ${cmd.size}")
             return Result.failure(IllegalStateException("команда не отправлена: $sent из ${cmd.size}"))
         }
         return readUntilFinal(timeoutMs)
@@ -181,8 +202,15 @@ class FastbootUsb(private val context: Context) {
 
         while (true) {
             val len = conn.bulkTransfer(input, buffer, buffer.size, timeoutMs)
-            if (len < 0) return Result.failure(IllegalStateException("нет ответа от загрузчика"))
-            if (len < 4) return Result.failure(IllegalStateException("битый кадр: $len байт"))
+            if (len < 0) {
+                DebugLog.error(LogTag.FASTBOOT, "← нет ответа за ${timeoutMs} мс")
+                return Result.failure(IllegalStateException("нет ответа от загрузчика"))
+            }
+            if (len < 4) {
+                DebugLog.error(LogTag.FASTBOOT, "← битый кадр: $len байт ${hex(buffer, len)}")
+                return Result.failure(IllegalStateException("битый кадр: $len байт"))
+            }
+            DebugLog.trace(LogTag.FASTBOOT, "← $len байт: ${preview(buffer, len)}")
             when (val frame = FastbootCodec.parseFrame(buffer, len)) {
                 is FastbootFrame.Info -> info.add(frame.payload)
                 is FastbootFrame.Okay -> return Result.success(
@@ -212,10 +240,16 @@ class FastbootUsb(private val context: Context) {
             val chunk = data.copyOfRange(offset, offset + count)
             val sent = conn.bulkTransfer(out, chunk, count, timeoutMs)
             if (sent != count) {
+                DebugLog.error(
+                    LogTag.FASTBOOT,
+                    "→ данные: обрыв на смещении $offset, отправлено $sent из $count",
+                )
                 return Result.failure(IllegalStateException("данные оборваны на $offset: $sent из $count"))
             }
             offset += count
+            DebugLog.trace(LogTag.FASTBOOT, "→ данные: $offset из ${data.size}")
         }
+        DebugLog.trace(LogTag.FASTBOOT, "→ данные переданы целиком: ${data.size} байт")
         return Result.success(Unit)
     }
 
@@ -266,4 +300,22 @@ class FastbootUsb(private val context: Context) {
     }
 
     fun asciiPreview(bytes: ByteArray): String = String(bytes, StandardCharsets.US_ASCII)
+
+    /**
+     * Ответ загрузчика для журнала: печатаемый текст как есть, остальное — hex.
+     * Длинные ответы (список переменных) обрезаются, иначе журнал распухает.
+     */
+    fun preview(bytes: ByteArray, length: Int): String {
+        val slice = bytes.copyOfRange(0, minOf(length, 512))
+        val printable = slice.all { it in 32..126 || it == 10.toByte() || it == 13.toByte() || it == 0.toByte() }
+        val text = if (printable) {
+            String(slice, StandardCharsets.US_ASCII).replace("\u0000", "").trim()
+        } else {
+            hex(slice, slice.size)
+        }
+        return if (length > 512) "$text… (+${length - 512} байт)" else text
+    }
+
+    fun hex(bytes: ByteArray, length: Int): String =
+        bytes.copyOfRange(0, minOf(length, 128)).joinToString(" ") { "%02x".format(it) }
 }

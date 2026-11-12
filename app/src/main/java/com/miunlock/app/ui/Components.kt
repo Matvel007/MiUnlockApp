@@ -27,6 +27,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -35,6 +36,10 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -57,9 +62,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miunlock.app.R
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogLevel
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.ui.theme.MiOrange
-import java.time.ZoneId
-import java.time.format.DateTimeFormatter
+import kotlinx.coroutines.delay
 
 /** Общие элементы оформления. Вынесены из MainActivity, чтобы не дублировать в новых экранах. */
 
@@ -225,6 +231,13 @@ fun ConsoleScreen(onBack: () -> Unit) {
     val events by DebugLog.events.collectAsState()
     val clipboard = LocalClipboardManager.current
     val language = LocalLanguage.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1800)
+            copied = false
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         PaperBackground()
         LazyColumn(
@@ -240,19 +253,67 @@ fun ConsoleScreen(onBack: () -> Unit) {
                     TextButton(onClick = onBack) { Text(tr("ГОТОВО", "DONE")) }
                 }
             }
+            item {
+                Button(
+                    onClick = {
+                        val text = DebugLog.exportText()
+                        clipboard.setText(AnnotatedString(text))
+                        copied = true
+                        DebugLog.add(
+                            LogLevel.INFO,
+                            LogTag.UI,
+                            "лог скопирован в буфер: ${text.length} символов",
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Text(
+                        if (copied) {
+                            tr("СКОПИРОВАНО", "COPIED")
+                        } else {
+                            tr("КОПИРОВАТЬ ВЕСЬ ЛОГ", "COPY FULL LOG")
+                        },
+                    )
+                }
+                Text(
+                    tr(
+                        "Событий: ${events.size}. В копию попадает шапка с моделью, версией Android и сборкой.",
+                        "Events: ${events.size}. The copy includes a header with model, Android version and build.",
+                    ),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+            }
             if (events.isEmpty()) {
                 item { Text(tr("Событий пока нет", "No events yet"), color = MaterialTheme.colorScheme.secondary) }
             } else {
                 items(events.reversed()) { event ->
                     val message = localizedDebugMessage(event.message, language)
+                    val tint = when (event.level) {
+                        LogLevel.ERROR -> Color(0xFFFF6B5E)
+                        LogLevel.WARN -> Color(0xFFFFB74D)
+                        LogLevel.TRACE -> Color(0xFF8C8C8C)
+                        LogLevel.INFO -> MiOrange
+                    }
                     SketchCard(container = Color(0xFF1E1E1E)) {
-                        Text(
-                            event.time.atZone(ZoneId.systemDefault())
-                                .format(DateTimeFormatter.ofPattern("HH:mm:ss.SSS")),
-                            color = MiOrange,
-                            fontFamily = FontFamily.Monospace,
-                            fontSize = 12.sp,
-                        )
+                        Row {
+                            Text(
+                                DebugLog.formatTime(event),
+                                color = MiOrange,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Text(
+                                "${event.level.letter} ${event.tag.label}",
+                                color = tint,
+                                fontFamily = FontFamily.Monospace,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Text(
                             message,
                             color = Color(0xFFF5F5F5),

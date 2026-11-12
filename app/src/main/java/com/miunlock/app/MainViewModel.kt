@@ -8,6 +8,7 @@ import com.miunlock.app.domain.AppState
 import com.miunlock.app.domain.Credentials
 import com.miunlock.app.domain.RunPhase
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.service.UnlockService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -117,7 +118,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             snackbar.value = statusText
         } catch (error: Exception) {
             if (state.value.settings.proxy.isEnabled) proxyStatus.value = "Прокси недоступен"
-            DebugLog.add("Ошибка проверки: ${errorSummary(error)}")
+            DebugLog.error(LogTag.API, "Ошибка проверки: ${errorSummary(error)}")
             snackbar.value = "Ошибка проверки: ${proxyError(error)}"
         } finally {
             busy.value = false
@@ -134,7 +135,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             DebugLog.add("Прокси подключён")
         } catch (error: Exception) {
             proxyStatus.value = "Прокси недоступен"
-            DebugLog.add("Ошибка прокси: ${errorSummary(error)}")
+            DebugLog.error(LogTag.API, "Ошибка прокси: ${errorSummary(error)}")
             snackbar.value = "Ошибка прокси: ${proxyError(error)}"
         } finally {
             busy.value = false
