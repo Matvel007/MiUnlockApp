@@ -13,6 +13,13 @@ local.properties
 /app/build/
 **/__pycache__/
 *.py[cod]
+
+# Служебные заметки проекта — только локально, наружу не выкладываем.
 *.md
 !README.md
 !README_RU.md
+CHANGELOG.md
+PROJECT_REPORT.md
+UNLOCK.md
+AGENTS.md
+STATE.md
