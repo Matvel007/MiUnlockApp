@@ -1,5 +1,7 @@
 package com.miunlock.app.unlock
 
+import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.ProxySettings
 import com.miunlock.app.domain.ProxyType
 import kotlinx.coroutines.Dispatchers
@@ -166,11 +168,33 @@ class UnlockApi(private val proxy: ProxySettings = ProxySettings()) {
         }
         client.newCall(builder.build()).execute().use { response ->
             val body = response.body?.string().orEmpty()
+            DebugLog.trace(
+                LogTag.API,
+                "POST $path: HTTP ${response.code}, ${body.length} байт",
+            )
             if (!response.isSuccessful) {
-                throw IllegalStateException("HTTP ${response.code}")
+                // Тело при ошибке — единственное, что объясняет причину:
+                // неверная зона, истёкшая сессия, блокировка по IP.
+                DebugLog.error(
+                    LogTag.API,
+                    "POST $path: HTTP ${response.code}, начало тела: ${body.take(200)}",
+                )
+                throw IllegalStateException("HTTP ${response.code} на $path")
             }
-            if (body.isBlank()) throw IllegalStateException("пустой ответ сервера")
-            val json = UnlockCrypto.decryptResponse(body, ssecurity)
+            if (body.isBlank()) {
+                DebugLog.error(LogTag.API, "POST $path: пустой ответ")
+                throw IllegalStateException("пустой ответ сервера")
+            }
+            val json = try {
+                UnlockCrypto.decryptResponse(body, ssecurity)
+            } catch (error: Exception) {
+                DebugLog.error(
+                    LogTag.API,
+                    "POST $path: не расшифрован ответ, начало: ${body.take(200)}",
+                )
+                throw error
+            }
+            DebugLog.trace(LogTag.API, "POST $path: код ${json.optInt("code", -1)}")
             UnlockApiResult(json.optInt("code", -1), json)
         }
     }

@@ -86,7 +86,7 @@ object UnlockCrypto {
      *                 Передаётся строкой, чтобы порядок ключей не зависел от JSONObject.
      */
     fun sign(path: String, params: Map<String, String>, ssecurity: String): SignedParams {
-        val key = Base64.getDecoder().decode(ssecurity)
+        val key = decodeKey(ssecurity)
         val raw = LinkedHashMap<String, String>()
         for ((k, v) in params) raw[k] = v
         raw["sid"] = SID
@@ -122,7 +122,7 @@ object UnlockCrypto {
         // Ответ может прийти незашифрованным (ошибка шлюза, HTML от прокси).
         // Пользователю нужен внятный текст, а не «bad base-64».
         val jsonBytes = try {
-            val key = Base64.getDecoder().decode(ssecurity)
+            val key = decodeKey(ssecurity)
             val plain = aesDecrypt(key, Base64.getDecoder().decode(trimmed))
             Base64.getDecoder().decode(String(plain, StandardCharsets.UTF_8))
         } catch (error: Exception) {
@@ -132,6 +132,24 @@ object UnlockCrypto {
             )
         }
         return JSONObject(String(jsonBytes, StandardCharsets.UTF_8))
+    }
+
+    /**
+     * Ключ AES-128 из `ssecurity`. Проверка длины важнее удобства: при пустой
+     * или обрезанной сессии иначе падает «Invalid key length» без объяснений.
+     */
+    private fun decodeKey(ssecurity: String): ByteArray {
+        val clean = ssecurity.trim()
+        require(clean.isNotEmpty()) { "ssecurity пустой — войдите в аккаунт заново" }
+        val key = try {
+            Base64.getDecoder().decode(clean)
+        } catch (error: IllegalArgumentException) {
+            throw IllegalStateException("ssecurity не base64 — сессия повреждена", error)
+        }
+        require(key.size == 16) {
+            "ssecurity дал ${key.size} байт вместо 16 — сессия повреждена, войдите заново"
+        }
+        return key
     }
 
     private fun b64(data: ByteArray): String = Base64.getEncoder().encodeToString(data)

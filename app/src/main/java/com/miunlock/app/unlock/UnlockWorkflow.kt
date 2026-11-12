@@ -148,12 +148,23 @@ class UnlockWorkflow(
         listener: Listener,
         onConfirmClear: suspend (cleanOrNot: Boolean, notice: String) -> Boolean = { _, _ -> true },
     ): UnlockOutcome {
+        // Текущий шаг: при исключении важно сказать, где именно встало,
+        // а не валить всё на «DEVICE».
+        var current = UnlockStep.DEVICE
         fun step(s: UnlockStep, ru: String, en: String) {
+            current = s
             DebugLog.add(LogLevel.INFO, LogTag.APP, "шаг $s: $ru")
             listener.onProgress(UnlockProgress(s, ru, en))
         }
 
         step(UnlockStep.DEVICE, "Открываю USB-устройство", "Opening the USB device")
+        DebugLog.add(
+            LogLevel.INFO,
+            LogTag.AUTH,
+            "сессия: ssecurity ${session.ssecurity.length} симв., uid ${session.userId.length} симв., " +
+                "deviceId ${session.deviceId.length} симв., cookies ${session.cookies.size}, " +
+                "token ${session.serviceToken.length} симв.",
+        )
         usb.open(device).getOrElse {
             return UnlockOutcome.Failure(UnlockStep.DEVICE, it.message ?: "не удалось открыть устройство")
         }
@@ -243,6 +254,15 @@ class UnlockWorkflow(
 
             step(UnlockStep.DONE, "Готово", "Done")
             return UnlockOutcome.Success(unlock)
+        } catch (error: Throwable) {
+            // Любое исключение внутри шага: сеть, разбор ответа, USB.
+            // В журнал — полный стек, на экран — понятная строка.
+            DebugLog.error(
+                LogTag.APP,
+                "исключение на шаге $current: ${error::class.simpleName}: ${error.message}",
+            )
+            DebugLog.error(LogTag.APP, error.stackTraceToString().takeLast(3000))
+            return UnlockOutcome.Failure(current, error.message ?: error::class.simpleName ?: "ошибка")
         } finally {
             usb.close()
         }
