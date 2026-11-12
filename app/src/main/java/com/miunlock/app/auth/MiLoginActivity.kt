@@ -61,6 +61,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import com.miunlock.app.MiUnlockApp
 import com.miunlock.app.R
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.data.LogLevel
 import com.miunlock.app.data.LogTag
 import com.miunlock.app.domain.Credentials
 import com.miunlock.app.service.QrLoginService
@@ -185,8 +186,30 @@ class MiLoginActivity : ComponentActivity() {
                 )
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
-                    val method = result.verificationMethods.firstOrNull { it == "EM" }
-                        ?: result.verificationMethods.first()
+                    // Почта и SMS считаются отдельно: у аккаунта может быть ноль
+                    // на почте и пять на SMS. Берём тот способ, где есть остаток,
+                    // а не первый по списку.
+                    val quotas = runCatching { auth.quotas(result.verificationMethods) }
+                        .getOrDefault(emptyMap())
+                    val method = result.verificationMethods
+                        .filter { (quotas[it] ?: 1) > 0 }
+                        .let { available ->
+                            available.firstOrNull { it == "EM" } ?: available.firstOrNull()
+                        }
+                    if (method == null) {
+                        val detail = quotas.entries.joinToString(", ") { "${it.key}: ${it.value}" }
+                        DebugLog.error(LogTag.AUTH, "нет попыток ни на одном способе ($detail)")
+                        status = t(
+                            "Лимит отправки кодов исчерпан и на почту, и на SMS. Попробуйте позже или войдите под другим аккаунтом.",
+                            "The code limit is used up for both email and SMS. Try later or sign in with another account.",
+                        )
+                        return@launch
+                    }
+                    DebugLog.add(
+                        LogLevel.INFO, LogTag.AUTH,
+                        "способ подтверждения: $method (остатки: " +
+                            quotas.entries.joinToString(", ") { "${it.key}=${it.value}" } + ")",
+                    )
                     sendCode(method)
                 } else {
                     finishLogin()

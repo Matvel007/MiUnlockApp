@@ -95,6 +95,24 @@ class PythonMiAuth(context: Context) {
         requireOk(result)
     }
 
+    /**
+     * Остаток попыток по способам подтверждения. Сервер считает почту и SMS
+     * отдельно, поэтому выбирать способ вслепую нельзя.
+     */
+    suspend fun quotas(methods: List<String>): Map<String, Int> = withContext(Dispatchers.IO) {
+        val result = call("quotas", *methods.toTypedArray())
+        requireOk(result)
+        val raw = result.optJSONObject("quotas") ?: return@withContext emptyMap()
+        buildMap {
+            raw.keys().forEach { key ->
+                val quota = raw.optJSONObject(key)
+                DebugLog.add(LogLevel.INFO, LogTag.AUTH, "квота $key: $quota")
+                val info = quota?.optString("info").orEmpty()
+                put(key, info.toIntOrNull() ?: -1)
+            }
+        }
+    }
+
     suspend fun verifyCode(method: String, code: String, sid: String): PythonLoginResult =
         callLogin("verify_code", method, code, sid)
 

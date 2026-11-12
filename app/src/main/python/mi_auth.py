@@ -105,6 +105,20 @@ def login(user, password, sid, safe_address="false"):
     return _reply(_finish_auth(session.post(SERVICE_LOGIN_AUTH2, data=auth_data), sid))
 
 
+def quotas(*methods):
+    """Остаток попыток по каждому способу подтверждения.
+
+    Сервер считает почту и SMS отдельно: у одного и того же аккаунта на почте
+    может быть ноль, а на SMS — пять. Выбирать способ вслепую нельзя.
+    """
+    result = {}
+    for method in methods:
+        result[method] = _json(
+            session.post(USER_QUOTA, data={"addressType": method, "contentType": "160040", "_json": "true"})
+        )
+    return _reply({"ok": True, "quotas": result})
+
+
 def send_code(method):
     if not verification_context:
         return _reply({"ok": False, "error": _message("Сессия подтверждения истекла", "Verification session expired")})
