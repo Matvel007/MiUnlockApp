@@ -167,7 +167,7 @@ internal fun UnlockScreenContent(
 
 @Composable
 private fun AccountStateCard(session: UnlockSession, onLogin: () -> Unit) {
-    SketchCard(container = if (session.isValid) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .55f) else null) {
+    SketchCard(container = if (session.isValid) MaterialTheme.colorScheme.primaryContainer else null) {
         SectionTitle("01", tr("АККАУНТ", "ACCOUNT"))
         if (session.isValid) {
             Text(tr("Вход выполнен", "Signed in"), fontWeight = FontWeight.Black)
@@ -316,8 +316,7 @@ private fun StatusLine(state: UnlockUiState) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(accent.copy(alpha = .14f), RoundedCornerShape(12.dp))
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 2.dp, vertical = 10.dp),
         verticalAlignment = Alignment.Top,
     ) {
         Text(sign, color = accent, fontWeight = FontWeight.Black, fontSize = 15.sp)

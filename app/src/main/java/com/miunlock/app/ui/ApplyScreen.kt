@@ -303,7 +303,7 @@ private fun StatusCard(state: AppState) {
         RunPhase.IDLE, RunPhase.STOPPED -> if (missingCredentials) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.outline
         else -> MiOrange
     }
-    SketchCard(container = MaterialTheme.colorScheme.primaryContainer.copy(alpha = .65f)) {
+    SketchCard(container = MaterialTheme.colorScheme.primaryContainer) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Box(
                 Modifier.size(48.dp).background(color.copy(alpha = .14f), CircleShape),
