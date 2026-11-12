@@ -3,7 +3,7 @@ import hashlib
 import json
 import re
 from http.cookies import SimpleCookie
-from urllib.parse import quote, urlparse, parse_qs
+from urllib.parse import quote, urlparse, parse_qs, parse_qsl
 
 import requests
 
@@ -243,6 +243,79 @@ def _service_login(cookies, sid):
     return answer, client, key_source, attempts
 
 
+def _sts_summary(results):
+    """Короткая строка о попытках STS для сообщения об ошибке."""
+    parts = []
+    for entry in results:
+        if "error" in entry:
+            parts.append(f"{entry['variant']}: сбой сети")
+            continue
+        detail = f"{entry['variant']}: {entry['status']}"
+        if entry.get("wwwAuth"):
+            detail += f" [{entry['wwwAuth']}]"
+        if entry.get("finalHost"):
+            detail += f" → {entry['finalHost']}"
+        parts.append(detail)
+    return "; ".join(parts) or "нет ответа"
+
+
+def _sts_obtain(location, nonce, ssecurity, cookies):
+    """Достаёт cookies сервиса через STS. Возвращает (cookies, попытки).
+
+    STS — единственное место, где сервис выдаёт свой токен. Он отвечает 401
+    и на браузерный UA, поэтому перебираем варианты и возвращаем всё, что
+    сервер сказал: статус, WWW-Authenticate, Set-Cookie. Без этих фактов
+    дальше — гадание.
+
+    Отдельно пробуем парный хост: Xiaomi держит китайский unlock.update.miui.com
+    и международный unlock.update.intl.miui.com, и сессия международного
+    аккаунта на китайском хосте не признаётся.
+    """
+    sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
+    parsed = urlparse(location)
+    hosts = [parsed.netloc]
+    if parsed.netloc.endswith(".intl.miui.com"):
+        hosts.append(parsed.netloc[: -len(".intl.miui.com")] + ".miui.com")
+    elif parsed.netloc.endswith(".miui.com"):
+        hosts.append(parsed.netloc[: -len(".miui.com")] + ".intl.miui.com")
+    path = parsed.path + ("?" + parsed.query if parsed.query else "")
+    cookie_sets = [("3", {k: cookies.get(k) for k in ("deviceId", "passToken", "userId")}),
+                   ("all", dict(cookies))]
+    results, found = [], {}
+    for host in hosts:
+        base = f"{parsed.scheme}://{host}{path}"
+        for name, jar in cookie_sets:
+            if not all(jar.values()):
+                continue
+            for mode, url in (("sign", f"{base}&clientSign={sign}"), ("plain", base)):
+                probe = requests.Session()
+                probe.headers.update(session.headers)
+                for key, value in jar.items():
+                    probe.cookies.set(key, value)
+                try:
+                    answer = probe.get(
+                        url,
+                        headers={"User-Agent": BROWSER_UA,
+                                 "Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
+                        allow_redirects=True,
+                    )
+                except Exception as error:
+                    results.append({"variant": f"{host}/{name}/{mode}", "error": str(error)[:120]})
+                    continue
+                fresh = {k: v for k, v in probe.cookies.get_dict().items() if jar.get(k) != v}
+                results.append({
+                    "variant": f"{host}/{name}/{mode}",
+                    "status": answer.status_code,
+                    "finalHost": urlparse(answer.url).netloc,
+                    "wwwAuth": answer.headers.get("WWW-Authenticate", ""),
+                    "setCookie": sorted(fresh),
+                    "len": len(answer.content),
+                })
+                if any(key.lower().endswith("servicetoken") for key in fresh):
+                    return probe.cookies.get_dict(), results
+    return found, results
+
+
 def exchange(sid):
     cookies = session.cookies.get_dict()
     if not all(cookies.get(key) for key in ("deviceId", "passToken", "userId")):
@@ -268,19 +341,13 @@ def exchange(sid):
             f"Сервис {sid} не выдал данные входа (код {first.get('code') if first else '?'})",
             f"Service {sid} did not provide sign-in data (code {first.get('code') if first else '?'})")})
 
-    sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
-    # STS unlock-домена отдаёт cookies сессии сервиса (serviceToken, unlockApi_slh,
-    # unlockApi_ph) только браузерному клиенту. С UA утилиты он отвечает страницей
-    # без cookies — и тогда unlock.update.* на любой запрос возвращает 401.
-    sts = client.get(
-        f"{location}&clientSign={sign}",
-        headers={"User-Agent": BROWSER_UA, "Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
-        allow_redirects=True,
+    parsed_location = urlparse(location)
+    exchange_debug["locationHost"] = parsed_location.netloc
+    exchange_debug["locationParams"] = sorted(
+        key for key, _ in parse_qsl(parsed_location.query) if key not in ("nonce", "ssecurity")
     )
-    sts_cookies = sts.cookies.get_dict()
-    # Имя cookie с токеном зависит от сервиса: у Mi Community это
-    # new_bbs_serviceToken, у unlockApi — serviceToken. Ищем по суффиксу.
-    service_cookies = client.cookies.get_dict()
+    service_cookies, sts_results = _sts_obtain(location, nonce, ssecurity, cookies)
+    exchange_debug["sts"] = sts_results
     token = ""
     for key in sorted(service_cookies):
         if key.lower().endswith("servicetoken"):
@@ -289,18 +356,17 @@ def exchange(sid):
     # Для unlock.update.* нужны cookies и ssecurity: ими подписывается каждый
     # запрос. Токен — только признак входа, в подписи он не участвует.
     exchange_debug.update({
-        "stsStatus": sts.status_code,
-        "stsCookies": sorted(sts_cookies.keys()),
+        "stsStatus": sts_results[0]["status"] if sts_results and "status" in sts_results[0] else 0,
+        "stsCookies": sorted(service_cookies),
         "serviceToken": bool(token),
     })
     if not service_cookies:
         return _reply({"ok": False, "debug": exchange_debug, "error": _message(
-            f"Сервис {sid} не выдал cookies (код {first.get('code')})",
-            f"Service {sid} did not return cookies (code {first.get('code')})")})
+            f"Сервис {sid} не выдал cookies: {_sts_summary(sts_results)}",
+            f"Service {sid} did not return cookies: {_sts_summary(sts_results)}")})
     # Хост, на который ведёт STS, — это и есть домен сервиса. Токен привязан
     # к нему, поэтому клиент пробует его первым, а зону оставляет запасным.
-    parsed = urlparse(location)
-    sts_domain = f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else ""
+    sts_domain = f"{parsed_location.scheme}://{parsed_location.netloc}" if parsed_location.netloc else ""
     return _reply({
         "ok": True,
         "token": token,
@@ -336,23 +402,26 @@ def refresh(sid, cookies_json):
         return _reply({"ok": False, "attempts": attempts, "error": _message(
             f"Сессия не обновляется (код {answer.get('code')})",
             f"Session cannot be refreshed (code {answer.get('code')})")})
-    sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
-    sts = client.get(
-        f"{location}&clientSign={sign}",
-        headers={"User-Agent": BROWSER_UA, "Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
-        allow_redirects=True,
-    )
-    cookies = client.cookies.get_dict()
-    token = next((v for k, v in sorted(cookies.items()) if k.lower().endswith("servicetoken")), "")
+    service_cookies, sts_results = _sts_obtain(location, nonce, ssecurity, saved)
+    token = next((v for k, v in sorted(service_cookies.items()) if k.lower().endswith("servicetoken")), "")
     parsed = urlparse(location)
+    if not token:
+        # Без токена сессия не станет рабочей: возвращаем причину, а не успех.
+        return _reply({
+            "ok": False,
+            "attempts": attempts,
+            "sts": sts_results,
+            "error": _message(
+                f"Сервис не выдал токен: {_sts_summary(sts_results)}",
+                f"Service did not return a token: {_sts_summary(sts_results)}"),
+        })
     return _reply({
         "ok": True,
-        "cookies": cookies,
+        "cookies": service_cookies,
         "ssecurity": ssecurity,
         "token": token,
-        "stsDomain": f"{parsed.scheme}://{parsed.netloc}" if parsed.scheme and parsed.netloc else "",
-        "stsStatus": sts.status_code,
-        "stsCookies": sorted(sts.cookies.get_dict().keys()),
+        "stsDomain": f"{parsed.scheme}://{parsed.netloc}" if parsed.netloc else "",
+        "sts": sts_results,
     })
 
 

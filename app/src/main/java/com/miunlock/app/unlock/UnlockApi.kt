@@ -179,6 +179,16 @@ class UnlockApi(private val proxy: ProxySettings = ProxySettings()) {
                     LogTag.API,
                     "POST $path: HTTP ${response.code}, начало тела: ${body.take(200)}",
                 )
+                // 401 без тела с WWW-Authenticate — это отдельный шлюз на
+                // unlock-хосте, а не отказ по подписи: различать важно.
+                val gate = response.header("WWW-Authenticate")
+                if (gate != null) {
+                    DebugLog.error(LogTag.API, "POST $path: сервер требует авторизацию «$gate»")
+                }
+                DebugLog.trace(
+                    LogTag.API,
+                    "POST $path: cookies ${cookies.size}, сервер ${response.header("Server") ?: "?"}",
+                )
                 throw IllegalStateException("HTTP ${response.code} на $path")
             }
             if (body.isBlank()) {
