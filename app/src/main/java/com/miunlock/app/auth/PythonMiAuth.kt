@@ -85,14 +85,20 @@ class PythonMiAuth(context: Context) {
         requireOk(result)
     }
 
-    suspend fun sendCode(method: String) {
+    suspend fun sendCode(method: String): JSONObject {
         val result = call("send_code", method)
         // Ответ проверки квоты пишем в лог целиком: без него не понять,
         // это настоящий лимит или сервер ответил ошибкой, а мы приняли её за ноль.
         if (result.has("quota")) {
             DebugLog.add(LogLevel.INFO, LogTag.AUTH, "квота $method: ${result.getJSONObject("quota")}")
         }
+        // Запрет частых попыток отдаём наверх: там покажем, сколько ждать.
+        if (result.optInt("retryAfter", 0) > 0) {
+            DebugLog.add(LogLevel.WARN, LogTag.AUTH, "отправка $method отложена: ${result.optString("error")}")
+            return result
+        }
         requireOk(result)
+        return result
     }
 
     /**

@@ -144,10 +144,24 @@ def send_code(method):
         })
     endpoint = SEND_PHONE if method == "PH" else SEND_EMAIL
     result = _json(session.post(endpoint))
-    if result.get("code") != 0:
+    code = result.get("code")
+    # 20024 — не дневной лимит, а запрет частых попыток: сервер просто не
+    # отправляет SMS и называет в `wt`, сколько секунд ждать.
+    if code == 20024:
+        wait = int((result.get("data") or {}).get("wt") or 60)
         return _reply({
             "ok": False,
-            "error": result.get("tips") or result.get("desc") or f"Код Xiaomi {result.get('code')}",
+            "error": _message(
+                f"Xiaomi просит подождать {wait} с перед новой отправкой",
+                f"Xiaomi asks to wait {wait}s before resending",
+            ),
+            "retryAfter": wait,
+            "quota": quota,
+        })
+    if code != 0:
+        return _reply({
+            "ok": False,
+            "error": result.get("tips") or result.get("desc") or result.get("reason") or f"Код Xiaomi {code}",
             "quota": quota,
         })
     return _reply({"ok": True, "quota": quota})

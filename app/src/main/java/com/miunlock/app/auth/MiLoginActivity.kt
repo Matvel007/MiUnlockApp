@@ -187,29 +187,16 @@ class MiLoginActivity : ComponentActivity() {
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
                     // Почта и SMS считаются отдельно: у аккаунта может быть ноль
-                    // на почте и пять на SMS. Берём тот способ, где есть остаток,
-                    // а не первый по списку.
-                    val quotas = runCatching { auth.quotas(result.verificationMethods) }
-                        .getOrDefault(emptyMap())
-                    val method = result.verificationMethods
-                        .filter { (quotas[it] ?: 1) > 0 }
-                        .let { available ->
-                            available.firstOrNull { it == "EM" } ?: available.firstOrNull()
-                        }
+                    // на почте и пять на SMS. Берём тот способ, где есть остаток.
+                    val method = chooseMethod(result.verificationMethods)
                     if (method == null) {
-                        val detail = quotas.entries.joinToString(", ") { "${it.key}: ${it.value}" }
-                        DebugLog.error(LogTag.AUTH, "нет попыток ни на одном способе ($detail)")
+                        DebugLog.error(LogTag.AUTH, "нет попыток ни на одном способе")
                         status = t(
                             "Лимит отправки кодов исчерпан и на почту, и на SMS. Попробуйте позже или войдите под другим аккаунтом.",
                             "The code limit is used up for both email and SMS. Try later or sign in with another account.",
                         )
                         return@launch
                     }
-                    DebugLog.add(
-                        LogLevel.INFO, LogTag.AUTH,
-                        "способ подтверждения: $method (остатки: " +
-                            quotas.entries.joinToString(", ") { "${it.key}=${it.value}" } + ")",
-                    )
                     sendCode(method)
                 } else {
                     finishLogin()
@@ -226,10 +213,36 @@ class MiLoginActivity : ComponentActivity() {
     private suspend fun sendCode(method: String) {
         selectedMethod = method
         status = t("Запрашиваю код Xiaomi...", "Requesting Xiaomi code...")
-        auth.sendCode(method)
+        val result = auth.sendCode(method)
+        val wait = result.optInt("retryAfter", 0)
+        if (wait > 0) {
+            // Сервер не отправил ни одного кода: говорить «код отправлен» нельзя.
+            codeSent = false
+            status = t(
+                "Xiaomi не отправил код: слишком частые попытки. Подождите $wait с и нажмите «Получить код» снова.",
+                "Xiaomi did not send the code: too many attempts. Wait $wait s and tap Get code again.",
+            )
+            return
+        }
         codeSent = true
         val channel = if (method == "PH") t("по SMS", "by SMS") else t("на email", "by email")
         status = t("Код отправлен $channel. Введите его в поле под паролем и нажмите «Проверить код».", "Code sent $channel. Enter it below the password and tap Verify code.")
+    }
+
+    /**
+     * Способ подтверждения с остатком попыток. Почта и SMS считаются отдельно:
+     * у аккаунта может быть ноль на почте и несколько на SMS.
+     */
+    private suspend fun chooseMethod(methods: List<String>): String? {
+        if (methods.isEmpty()) return null
+        val quotas = runCatching { auth.quotas(methods) }.getOrDefault(emptyMap())
+        val available = methods.filter { (quotas[it] ?: 1) > 0 }
+        DebugLog.add(
+            LogLevel.INFO, LogTag.AUTH,
+            "способы $methods, остатки " + quotas.entries.joinToString(", ") { "${it.key}=${it.value}" } +
+                ", выбран ${available.firstOrNull { it == "EM" } ?: available.firstOrNull() ?: "нет"}",
+        )
+        return available.firstOrNull { it == "EM" } ?: available.firstOrNull()
     }
 
     private fun verifyCode() {
@@ -246,8 +259,14 @@ class MiLoginActivity : ComponentActivity() {
                 if (result.needsVerification) {
                     verificationMethods = result.verificationMethods
                     codeSent = false
-                    val nextMethod = result.verificationMethods.firstOrNull { it == "EM" }
-                        ?: result.verificationMethods.first()
+                    val nextMethod = chooseMethod(result.verificationMethods)
+                    if (nextMethod == null) {
+                        status = t(
+                            "Лимит отправки кодов исчерпан и на почту, и на SMS.",
+                            "The code limit is used up for both email and SMS.",
+                        )
+                        return@launch
+                    }
                     sendCode(nextMethod)
                 } else {
                     finishLogin()
