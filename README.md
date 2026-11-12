@@ -32,6 +32,7 @@ Unlock mode:
 - Its own Mi Account session, separate from the application mode.
 - Reads the device token, checks the data wipe, gets the Xiaomi signature and hands it to the bootloader.
 - Asks for confirmation before the irreversible step and logs every stage.
+- Shows a clear status for every stage: what is running now, where it stopped, how many hours are left, and which code the server returned.
 
 Application mode:
 
@@ -68,10 +69,11 @@ The app opens with the mode selection screen.
 
 1. Pick **Bootloader unlock**.
 2. Sign in to Mi Account — this is a separate session.
-3. Put the target phone into fastboot (power off, then hold Volume Down and Power).
-4. Connect it to this phone with an OTG cable.
-5. Tap **Find device** and allow USB access.
+3. Connect the target phone to this phone with an OTG cable and enable “USB debugging” on the target phone.
+4. Tap **FASTBOOT** — the phone reboots into the bootloader by itself; on the first connection it asks for permission on its own screen.
+5. If debugging is off, do it by hand: power the phone off and hold Volume Down and Power. Then tap **Find** and allow USB access.
 6. Tap **Unlock** and confirm the data wipe.
+7. If Xiaomi says the account is not ready yet, the app shows how many hours are left.
 
 ### Unlock application
 
@@ -83,6 +85,16 @@ The app opens with the mode selection screen.
 6. Optionally configure and test an HTTP proxy in **Settings** before the check.
 7. Tap **Start** when the account is ready.
 8. The app keeps working in the background. The notification shows its current status and lets you stop it at any time.
+
+## Build
+
+```
+./gradlew :app:assembleRelease
+```
+
+- Default ABIs: `arm64-v8a` and `armeabi-v7a`. For the emulator: `-PabiFilters=x86_64`.
+- Unit tests: `./gradlew :app:testDebugUnitTest`.
+- Debug builds include a state preview stand for the unlock screen: `adb shell am start -n com.miunlock.app/.DemoStatesActivity --ei state 7`. It is not part of release builds.
 
 ## Important
 
