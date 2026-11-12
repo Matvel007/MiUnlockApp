@@ -19,6 +19,12 @@ VERIFY_EMAIL = "https://account.xiaomi.com/identity/auth/verifyEmail"
 VERIFY_PHONE = "https://account.xiaomi.com/identity/auth/verifyPhone"
 LONGPOLLING_URL = "https://account.xiaomi.com/longPolling/loginUrl"
 
+# STS unlock-домена отдаёт cookies сессии сервиса только браузерному клиенту.
+BROWSER_UA = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+)
+
 session = requests.Session()
 session.headers.update({
     "User-Agent": "offici5l/migate",
@@ -252,9 +258,17 @@ def exchange(sid):
             f"Service {sid} did not provide sign-in data (code {first.get('code') if first else '?'})")})
 
     sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
-    client.get(f"{location}&clientSign={sign}")
+    # STS unlock-домена отдаёт cookies сессии сервиса (serviceToken, unlockApi_slh,
+    # unlockApi_ph) только браузерному клиенту. С UA утилиты он отвечает страницей
+    # без cookies — и тогда unlock.update.* на любой запрос возвращает 401.
+    sts = client.get(
+        f"{location}&clientSign={sign}",
+        headers={"User-Agent": BROWSER_UA, "Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
+        allow_redirects=True,
+    )
+    sts_cookies = sts.cookies.get_dict()
     # Имя cookie с токеном зависит от сервиса: у Mi Community это
-    # new_bbs_serviceToken, у unlockApi — своё. Ищем по суффиксу.
+    # new_bbs_serviceToken, у unlockApi — serviceToken. Ищем по суффиксу.
     service_cookies = client.cookies.get_dict()
     token = ""
     for key in sorted(service_cookies):
@@ -263,6 +277,11 @@ def exchange(sid):
             break
     # Для unlock.update.* нужны cookies и ssecurity: ими подписывается каждый
     # запрос. Токен — только признак входа, в подписи он не участвует.
+    exchange_debug.update({
+        "stsStatus": sts.status_code,
+        "stsCookies": sorted(sts_cookies.keys()),
+        "serviceToken": bool(token),
+    })
     if not service_cookies:
         return _reply({"ok": False, "debug": exchange_debug, "error": _message(
             f"Сервис {sid} не выдал cookies (код {first.get('code')})",
@@ -275,6 +294,44 @@ def exchange(sid):
         "ssecurity": ssecurity,
         "cookies": service_cookies,
         "debug": exchange_debug,
+    })
+
+
+def refresh(sid, cookies_json):
+    """Обновляет cookies сервиса по сохранённой сессии, без нового входа.
+
+    Токен сервиса unlock-домена живёт около часа. Когда он истёк, сервер
+    отвечает 401 на первый же запрос. Здесь повторяется только STS-обмен
+    на уже имеющихся cookies — пароль и код не нужны.
+    """
+    saved = json.loads(cookies_json)
+    if not all(saved.get(k) for k in ("deviceId", "passToken", "userId")):
+        return _reply({"ok": False, "error": _message("Нет сохранённой сессии", "No saved session")})
+    client = requests.Session()
+    client.headers.update(session.headers)
+    for key, value in saved.items():
+        client.cookies.set(key, value)
+    answer = _json(client.get(SERVICE_LOGIN, params={"sid": sid, "_json": True, "checkSafeAddress": "true"}))
+    nonce, ssecurity, location = answer.get("nonce"), answer.get("ssecurity"), answer.get("location")
+    if not nonce or not ssecurity or not location:
+        return _reply({"ok": False, "error": _message(
+            f"Сессия не обновляется (код {answer.get('code')})",
+            f"Session cannot be refreshed (code {answer.get('code')})")})
+    sign = quote(base64.b64encode(hashlib.sha1(f"nonce={nonce}&{ssecurity}".encode()).digest()))
+    sts = client.get(
+        f"{location}&clientSign={sign}",
+        headers={"User-Agent": BROWSER_UA, "Accept": "text/html,application/json;q=0.9,*/*;q=0.8"},
+        allow_redirects=True,
+    )
+    cookies = client.cookies.get_dict()
+    token = next((v for k, v in sorted(cookies.items()) if k.lower().endswith("servicetoken")), "")
+    return _reply({
+        "ok": True,
+        "cookies": cookies,
+        "ssecurity": ssecurity,
+        "token": token,
+        "stsStatus": sts.status_code,
+        "stsCookies": sorted(sts.cookies.get_dict().keys()),
     })
 
 

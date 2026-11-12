@@ -178,23 +178,35 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Уточняет дата-центр по сохранённой сессии. Нужно, потому что зона
-     * определяет домен unlock.update.*: аккаунт из одной зоны не узнаётся
-     * сервером другой. Входить заново ради этого не требуется.
+     * Готовит сессию к запуску: обновляет cookies сервиса и уточняет зону.
+     *
+     * Токен unlock-домена живёт около часа — с истёкшим сервер отвечает 401
+     * на первый же запрос. Обновление идёт по сохранённым cookies, поэтому
+     * пароль и код не нужны. Зона определяет домен unlock.update.*.
      */
-    private suspend fun refreshZone(session: UnlockSession): UnlockSession {
+    private suspend fun prepareSession(session: UnlockSession): UnlockSession {
         if (session.cookies.isEmpty()) return session
         val auth = PythonMiAuth(getApplication())
-        auth.applySession(session.cookies)
+        var prepared = session
+        val fresh = auth.refresh(session.sid, session.cookies)
+        if (fresh != null && fresh.cookies.isNotEmpty()) {
+            prepared = prepared.copy(
+                cookies = fresh.cookies,
+                ssecurity = fresh.ssecurity.ifBlank { prepared.ssecurity },
+                serviceToken = fresh.token.ifBlank { prepared.serviceToken },
+            )
+        }
+        auth.applySession(prepared.cookies)
         val account = auth.accountZone()
-        if (account.zone.isBlank() || account.zone == session.zone) return session
-        DebugLog.add(
-            t("Разблокировка: зона уточнена — ", "Unlock: zone resolved — ") +
-                "${session.zone} → ${account.zone} (регион ${account.region})",
-        )
-        val updated = session.copy(zone = account.zone)
-        store.saveSession(updated)
-        return updated
+        if (account.zone.isNotBlank() && account.zone != prepared.zone) {
+            DebugLog.add(
+                t("Разблокировка: зона уточнена — ", "Unlock: zone resolved — ") +
+                    "${prepared.zone} → ${account.zone} (регион ${account.region})",
+            )
+            prepared = prepared.copy(zone = account.zone)
+        }
+        if (prepared != session) store.saveSession(prepared)
+        return prepared
     }
 
     fun logout() {
@@ -311,9 +323,9 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         DebugLog.add(t("Разблокировка: старт", "Unlock: started"))
 
         viewModelScope.launch {
-            // Зону уточняем до старта: от неё зависит домен unlock.update.*,
-            // и при неверной зоне сервер отвечает 401 на первый же запрос.
-            val session = runCatching { refreshZone(state.session) }.getOrDefault(state.session)
+            // Готовим сессию до старта: обновляем токен сервиса и уточняем зону.
+            // Истёкший токен и чужая зона дают 401 на первый же запрос.
+            val session = runCatching { prepareSession(state.session) }.getOrDefault(state.session)
             if (session !== state.session) state = state.copy(session = session)
             val workflow = UnlockWorkflow(usb, UnlockApi(state.proxy))
             val outcome = withContext(Dispatchers.IO) {

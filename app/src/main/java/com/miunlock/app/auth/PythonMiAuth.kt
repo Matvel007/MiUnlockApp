@@ -143,6 +143,30 @@ class PythonMiAuth(context: Context) {
         AccountZone(result.optString("region"), result.optString("zone"))
     }
 
+    /** Новые cookies сервиса по сохранённой сессии: токен живёт около часа. */
+    data class RefreshedSession(val cookies: Map<String, String>, val ssecurity: String, val token: String)
+
+    suspend fun refresh(sid: String, cookies: Map<String, String>): RefreshedSession? = withContext(Dispatchers.IO) {
+        val payload = JSONObject(cookies as Map<*, *>).toString()
+        val result = runCatching { call("refresh", sid, payload) }.getOrElse { error ->
+            DebugLog.warn(LogTag.AUTH, "обновление сессии не удалось: ${error.message}")
+            return@withContext null
+        }
+        if (!result.optBoolean("ok")) {
+            DebugLog.warn(LogTag.AUTH, "сессия не обновлена: ${result.optString("error")}")
+            return@withContext null
+        }
+        val fresh = result.optJSONObject("cookies")?.let { obj ->
+            obj.keys().asSequence().associateWith { obj.optString(it) }
+        }.orEmpty()
+        DebugLog.add(
+            LogLevel.INFO, LogTag.AUTH,
+            "сессия обновлена: STS ${result.optInt("stsStatus")}, cookies ${fresh.size}, " +
+                "токен ${if (result.optString("token").isEmpty()) "нет" else "есть"}",
+        )
+        RefreshedSession(fresh, result.optString("ssecurity"), result.optString("token"))
+    }
+
     suspend fun exchange(sid: String): Pair<String, String> {
         val result = call("exchange", sid)
         requireOk(result)
@@ -169,6 +193,15 @@ class PythonMiAuth(context: Context) {
                 LogTag.AUTH,
                 "обмен $sid: ключ ${d.optString("keySource")}, cookies ${d.opt("cookies")} | $attempts",
             )
+            if (d.has("stsStatus")) {
+                val names = d.optJSONArray("stsCookies")?.let { a -> List(a.length()) { a.optString(it) } }
+                    ?.joinToString().orEmpty()
+                DebugLog.add(
+                    LogLevel.INFO, LogTag.AUTH,
+                    "STS $sid: HTTP ${d.optInt("stsStatus")}, cookies [$names], " +
+                        "токен сервиса ${if (d.optBoolean("serviceToken")) "есть" else "нет"}",
+                )
+            }
             if (!d.optBoolean("hasNonce")) {
                 DebugLog.warn(
                     LogTag.AUTH,
