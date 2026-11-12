@@ -33,6 +33,7 @@ fun HomeScreen(
     onApply: () -> Unit,
     onUnlock: () -> Unit,
     onGitHub: () -> Unit,
+    onForum: () -> Unit,
 ) {
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -43,6 +44,7 @@ fun HomeScreen(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text("MiUnlockApp", style = MaterialTheme.typography.displaySmall)
                 Spacer(Modifier.weight(1f))
+                ForumButton(onForum)
                 GithubButton(onGitHub)
             }
             Spacer(Modifier.weight(0.22f))

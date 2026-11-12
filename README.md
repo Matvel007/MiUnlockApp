@@ -99,6 +99,10 @@ The app opens with the mode selection screen.
 - If configured, proxy address and credentials are kept locally on the device to use the chosen proxy for Xiaomi API requests.
 - Without a configured proxy, account details are sent only to Xiaomi. A proxy provider can observe connection metadata; use only a proxy you trust.
 
+## Community
+
+Questions, test builds and feedback live in the [4PDA thread](https://4pda.to/forum/index.php?showtopic=1124335). The app has a 4PDA button in the header that opens it.
+
 ## License
 
 This project is available under the [MIT License](LICENSE).

@@ -86,6 +86,7 @@ class DemoStatesActivity : ComponentActivity() {
                             onLanguage = { language = it },
                             onLogout = {},
                             onGitHub = {},
+                            onForum = {},
                         )
                         Box(Modifier.align(Alignment.BottomCenter)) {
                             DemoBar(

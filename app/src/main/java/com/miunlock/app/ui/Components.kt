@@ -188,6 +188,27 @@ fun GithubButton(onClick: () -> Unit) {
     }
 }
 
+/** Значок 4PDA в той же манере, что и GitHub: тот же размер, тинт и «дыхание». */
+@Composable
+fun ForumButton(onClick: () -> Unit) {
+    val transition = rememberInfiniteTransition(label = "forum")
+    val scale by transition.animateFloat(
+        initialValue = 0.96f,
+        targetValue = 1.04f,
+        animationSpec = infiniteRepeatable(tween(1800), RepeatMode.Reverse),
+        label = "forumScale",
+    )
+    IconButton(onClick = onClick) {
+        Icon(
+            painterResource(R.drawable.ic_4pda),
+            contentDescription = "4PDA",
+            tint = MaterialTheme.colorScheme.onSurface,
+            // Надпись легче залитого глифа GitHub: чуть крупнее, чтобы вес совпал.
+            modifier = Modifier.size(32.dp).graphicsLayer { scaleX = scale; scaleY = scale },
+        )
+    }
+}
+
 /** Стрелка «назад» для заголовков экранов. */
 @Composable
 fun BackArrow() {

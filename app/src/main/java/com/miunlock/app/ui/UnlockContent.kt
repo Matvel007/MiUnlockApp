@@ -68,6 +68,7 @@ internal fun UnlockScreenContent(
     onLanguage: (String) -> Unit,
     onLogout: () -> Unit,
     onGitHub: () -> Unit,
+    onForum: () -> Unit,
 ) {
     var showConsole by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
@@ -110,6 +111,7 @@ internal fun UnlockScreenContent(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = onBack) { BackArrow() }
                         Spacer(Modifier.weight(1f))
+                        ForumButton(onClick = onForum)
                         GithubButton(onClick = onGitHub)
                         IconButton(onClick = { showConsole = true }) {
                             ConsoleIcon(MaterialTheme.colorScheme.onSurface)

@@ -371,12 +371,7 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
         onProxy = vm::saveProxy,
         onLanguage = onLanguage,
         onLogout = vm::logout,
-        onGitHub = {
-            runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)),
-                )
-            }
-        },
+        onGitHub = { openLink(context, REPO_URL) },
+        onForum = { openLink(context, FORUM_URL) },
     )
 }

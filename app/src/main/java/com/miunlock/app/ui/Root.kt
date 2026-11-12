@@ -17,8 +17,18 @@ import com.miunlock.app.domain.AppState
 /** Экраны приложения. Стартовый — выбор режима. */
 private enum class Screen { HOME, APPLY, UNLOCK }
 
+/** Открывает ссылку в браузере. Нет браузера — молча ничего не делаем. */
+internal fun openLink(context: android.content.Context, url: String) {
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+    }
+}
+
 /** Адрес репозитория: один на всё приложение, чтобы ссылки не расходились. */
 internal const val REPO_URL = "https://github.com/Matvel007/MiUnlockApp"
+
+/** Тема приложения на 4PDA: туда идут тестеры. */
+internal const val FORUM_URL = "https://4pda.to/forum/index.php?showtopic=1124335"
 
 /**
  * Точка входа навигации. Режимы независимы: у каждого своё состояние
@@ -48,11 +58,8 @@ fun RootScreen(state: AppState, dispatch: (AppIntent) -> Unit) {
             version = BuildConfig.VERSION_NAME,
             onApply = { screen = Screen.APPLY },
             onUnlock = { screen = Screen.UNLOCK },
-            onGitHub = {
-                runCatching {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(REPO_URL)))
-                }
-            },
+            onGitHub = { openLink(context, REPO_URL) },
+            onForum = { openLink(context, FORUM_URL) },
         )
         Screen.APPLY -> MiUnlockScreen(
             state = state,
