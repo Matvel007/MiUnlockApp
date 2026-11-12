@@ -28,7 +28,8 @@ Two independent modes: **unlock application** and **bootloader unlock**.
 
 Unlock mode:
 
-- Works like a PC: the target phone is connected to this phone over an OTG cable in fastboot.
+- Works like a PC: the target phone is connected to this phone over an OTG cable.
+- The “FASTBOOT” button reboots the connected phone into the bootloader without button combos (USB debugging must be on).
 - Its own Mi Account session, separate from the application mode.
 - Reads the device token, checks the data wipe, gets the Xiaomi signature and hands it to the bootloader.
 - Asks for confirmation before the irreversible step and logs every stage.
