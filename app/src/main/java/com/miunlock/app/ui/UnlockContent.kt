@@ -369,6 +369,7 @@ private fun InstructionCard() {
             tr("Войдите в Mi Account на этом телефоне.", "Sign in to Mi Account on this phone."),
             tr("Выключите целевой телефон и зажмите Громкость− и Питание — он загрузится в fastboot.", "Power the target phone off and hold Volume Down and Power — it boots into fastboot."),
             tr("Подключите его к этому телефону по OTG-кабелю.", "Connect it to this phone with an OTG cable."),
+            tr("Сделайте это до запуска разблокировки: устройство, подключённое заранее, определяется надёжнее.", "Do this before starting the unlock: a device connected in advance is detected more reliably."),
             tr("Нажмите «Найти устройство» и разрешите доступ к USB.", "Tap “Find device” and allow USB access."),
             tr("Нажмите «Разблокировать» и подтвердите стирание данных.", "Tap “Unlock” and confirm the data wipe."),
         )
@@ -378,15 +379,6 @@ private fun InstructionCard() {
                 Text(line, style = MaterialTheme.typography.bodyMedium)
             }
         }
-        Spacer(Modifier.height(10.dp))
-        Text(
-            tr(
-                "Право на разблокировку выдаёт сервер Xiaomi по аккаунту. Приложение не обходит ограничения и не гарантирует разрешение.",
-                "Unlock permission is granted by Xiaomi for the account. The app does not bypass restrictions and does not guarantee approval.",
-            ),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.secondary,
-        )
     }
 }
 

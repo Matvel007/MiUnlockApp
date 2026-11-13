@@ -76,7 +76,8 @@ The app opens with the mode selection screen.
    **do not add the account on the phone again** — the countdown restarts from
    scratch. The app shows how many hours are left.
 5. Put the target phone into fastboot (power off, then hold Volume Down and Power).
-6. Connect it to this phone with an OTG cable.
+6. Connect it to this phone with an OTG cable. **Do this before starting the
+   unlock**: a device connected in advance is detected more reliably.
 7. Tap **Find device** and allow USB access.
 8. Tap **Unlock** and confirm the data wipe.
 

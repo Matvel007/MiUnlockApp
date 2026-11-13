@@ -183,6 +183,7 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
                 item { Header(onHome = onHome, onConsole = { showConsole = true },
+                    onSettings = { showSettings = true },
                     onGitHub = { openLink(context, REPO_URL) },
                     onForum = { openLink(context, FORUM_URL) }) }
                 item { DualClockCard() }
@@ -194,7 +195,7 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
                         onLogin = { context.startActivity(Intent(context, MiLoginActivity::class.java).putExtra("language", state.settings.language)) },
                     )
                 }
-                item { SettingsEntryCard(onClick = { showSettings = true }) }
+                item { LinkingHintCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
         }
@@ -205,18 +206,21 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
 private fun Header(
     onHome: () -> Unit = {},
     onConsole: () -> Unit,
+    onSettings: () -> Unit,
     onGitHub: () -> Unit,
     onForum: () -> Unit,
 ) {
     // Заголовок не пишем: длинное имя не влезает в строку и выдавливает значки.
+    // Порядок значков тот же, что в режиме разблокировки.
     Row(verticalAlignment = Alignment.CenterVertically) {
         IconButton(onClick = onHome) { BackArrow() }
         Spacer(Modifier.weight(1f))
+        ForumButton(onClick = onForum)
+        GithubButton(onClick = onGitHub)
         IconButton(onClick = onConsole) {
             ConsoleIcon(MaterialTheme.colorScheme.onSurface)
         }
-        ForumButton(onClick = onForum)
-        GithubButton(onClick = onGitHub)
+        IconButton(onClick = onSettings) { GearIcon() }
     }
 }
 
@@ -385,12 +389,22 @@ private fun AccountCard(
 }
 
 @Composable
-private fun SettingsEntryCard(onClick: () -> Unit) {
+private fun LinkingHintCard() {
     SketchCard {
-        SectionTitle("03", tr("НАСТРОЙКИ", "SETTINGS"))
-        OutlinedButton(onClick = onClick, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)) {
-            Text(tr("ОТКРЫТЬ НАСТРОЙКИ", "OPEN SETTINGS"))
-        }
+        SectionTitle("03", tr("ЕСЛИ ОТВЕТ «ПОПРОБУЙТЕ ПОЗЖЕ»", "IF XIAOMI SAYS “TRY LATER”"))
+        Text(
+            tr(
+                "Ответ вида «попробуйте на следующий день» — это не отказ. Аккаунт не отклонён: " +
+                    "ему не хватает привязки устройства к аккаунту. Откройте на телефоне Настройки → " +
+                    "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi и свяжите " +
+                    "аккаунт, затем подайте заявку снова.",
+                "An answer like “try again the next day” is not a rejection. The account is not " +
+                    "declined: it simply has no device linked to it yet. On the phone open Settings → " +
+                    "Additional settings → Developer options → Mi Unlock status, link the account, " +
+                    "then submit the application again.",
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
     }
 }
 
