@@ -54,6 +54,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             is AppIntent.SetProxyPassword -> updateProxy { copy(password = intent.value) }
             is AppIntent.SetAutoResume -> updateSettings { copy(autoResume = intent.value) }
             is AppIntent.SetVibration -> updateSettings { copy(vibration = intent.value) }
+            is AppIntent.SetHideRetryLaterHint -> updateSettings { copy(hideRetryLaterHint = intent.value) }
             is AppIntent.SetStatusNotifications -> updateSettings { copy(statusNotifications = intent.value) }
             is AppIntent.SetLanguage -> updateSettings { copy(language = intent.value) }
             AppIntent.Save -> saveCredentials()

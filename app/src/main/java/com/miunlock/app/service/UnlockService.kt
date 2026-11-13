@@ -187,7 +187,10 @@ class UnlockService : Service() {
             }
         }
         val phase = if (result.successful) RunPhase.SUCCESS else RunPhase.ERROR
-        publish(phase, result.message, target, result.serverTime)
+        // Коды 2 и 3 — «повторите позже»/«лимит»: это не отказ, разрешение
+        // на сервере могло быть выдано, поэтому показываем окно с подсказкой.
+        val retryLater = !result.successful && result.code in RETRY_LATER_CODES
+        publish(phase, result.message, target, result.serverTime, retryLater = retryLater)
         showResult(result.successful, result.message, result)
     }
 
@@ -215,8 +218,9 @@ class UnlockService : Service() {
         target: Instant? = snapshot.value.target,
         serverTime: Instant? = snapshot.value.lastServerTime,
         attempt: Int = snapshot.value.attempt,
+        retryLater: Boolean = false,
     ) {
-        _snapshot.value = ServiceSnapshot(phase, message, target, serverTime, Instant.now(), attempt)
+        _snapshot.value = ServiceSnapshot(phase, message, target, serverTime, Instant.now(), attempt, retryLater)
         val logMessage = if (phase == RunPhase.ERROR) "ошибка выполнения" else message
         DebugLog.add("Сервис: ${phase.name} - $logMessage")
         updateForeground(message)
@@ -419,6 +423,9 @@ class UnlockService : Service() {
         private const val STATUS_NOTIFICATION_ID = 6900
         private const val STATUS_INDICATOR_NOTIFICATION_ID = 6902
         private const val RESULT_NOTIFICATION_ID = 6901
+
+        /** Ответы Xiaomi «повторите позже»: не отказ, разрешение могло быть выдано. */
+        private val RETRY_LATER_CODES = setOf(2, 3)
 
         private val _snapshot = MutableStateFlow(ServiceSnapshot())
         val snapshot = _snapshot.asStateFlow()

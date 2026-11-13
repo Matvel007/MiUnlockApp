@@ -33,6 +33,8 @@ data class UserSettings(
     val vibration: Boolean = true,
     val statusNotifications: Boolean = true,
     val language: String = "ru",
+    /** Пользователь нажал «Принять» с галочкой — окно про «попробуйте завтра» больше не показываем. */
+    val hideRetryLaterHint: Boolean = false,
 ) {
     val proxy: ProxySettings
         get() = when (proxyType) {
@@ -50,6 +52,8 @@ data class ServiceSnapshot(
     val lastServerTime: Instant? = null,
     val lastUpdated: Instant = Instant.now(),
     val attempt: Int = 0,
+    /** Xiaomi ответил «попробуйте позже»: это не отказ, разрешение могло быть выдано. */
+    val retryLater: Boolean = false,
 )
 
 data class StateResult(
@@ -78,6 +82,7 @@ sealed interface AppIntent {
     data class SetProxyPassword(val value: String) : AppIntent
     data class SetAutoResume(val value: Boolean) : AppIntent
     data class SetVibration(val value: Boolean) : AppIntent
+    data class SetHideRetryLaterHint(val value: Boolean) : AppIntent
     data class SetStatusNotifications(val value: Boolean) : AppIntent
     data class SetLanguage(val value: String) : AppIntent
     data object Save : AppIntent

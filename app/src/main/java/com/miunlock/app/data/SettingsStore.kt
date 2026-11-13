@@ -36,6 +36,7 @@ class SettingsStore(private val context: Context) {
         val vibration = booleanPreferencesKey("vibration")
         val statusNotifications = booleanPreferencesKey("status_notifications")
         val language = stringPreferencesKey("language")
+        val hideRetryLaterHint = booleanPreferencesKey("hide_retry_later_hint")
         val wasRunning = booleanPreferencesKey("was_running")
     }
 
@@ -69,6 +70,7 @@ class SettingsStore(private val context: Context) {
             vibration = p[Keys.vibration] ?: true,
             statusNotifications = p[Keys.statusNotifications] ?: true,
             language = p[Keys.language] ?: "ru",
+            hideRetryLaterHint = p[Keys.hideRetryLaterHint] ?: false,
         )
     }
 
@@ -90,6 +92,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.vibration] = settings.vibration
             p[Keys.statusNotifications] = settings.statusNotifications
             p[Keys.language] = settings.language
+            p[Keys.hideRetryLaterHint] = settings.hideRetryLaterHint
         }
     }
 

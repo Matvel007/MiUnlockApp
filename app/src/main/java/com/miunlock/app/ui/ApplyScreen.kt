@@ -16,6 +16,9 @@ import androidx.compose.material3.Slider
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.foundation.layout.*
@@ -195,9 +198,21 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
                         onLogin = { context.startActivity(Intent(context, MiLoginActivity::class.java).putExtra("language", state.settings.language)) },
                     )
                 }
-                item { LinkingHintCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
+        }
+    }
+
+    // Окно про «попробуйте завтра»: показываем один раз на каждый такой ответ,
+    // пока пользователь не отметил «больше не показывать».
+    var retryHintDismissed by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(state.snapshot.retryLater) {
+        if (state.snapshot.retryLater) retryHintDismissed = false
+    }
+    if (state.snapshot.retryLater && !state.settings.hideRetryLaterHint && !retryHintDismissed) {
+        RetryLaterDialog { dontShowAgain ->
+            if (dontShowAgain) dispatch(AppIntent.SetHideRetryLaterHint(true))
+            retryHintDismissed = true
         }
     }
 }
@@ -389,36 +404,59 @@ private fun AccountCard(
 }
 
 @Composable
-private fun LinkingHintCard() {
-    SketchCard {
-        SectionTitle("03", tr("ЕСЛИ ОТВЕТ «ПОПРОБУЙТЕ ЗАВТРА»", "IF XIAOMI SAYS “TRY TOMORROW”"))
-        Text(
-            tr(
-                "Ответ «попробуйте завтра» или «квота исчерпана» — ещё не отказ. На серверах " +
-                    "Xiaomi бывает сбой: заявка на самом деле проходит и разрешение выдаётся, " +
-                    "а приложение показывает ошибку. Проверить просто: на телефоне откройте " +
-                    "Настройки → Дополнительные настройки → Для разработчиков → Статус " +
-                    "разблокировки Mi и нажмите «Добавить аккаунт». Если аккаунт привязался — " +
-                    "разрешение у вас есть, можно переходить к разблокировке.",
-                "An answer like “try again tomorrow” or “quota limit reached” is not a rejection " +
-                    "yet. Xiaomi's servers sometimes glitch: the request actually goes through and " +
-                    "permission is granted, while the app still shows an error. To check, open on " +
-                    "the phone Settings → Additional settings → Developer options → Mi Unlock " +
-                    "status and tap “Add account and device”. If the account binds, you have " +
-                    "permission and can proceed to unlock.",
-            ),
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            tr(
-                "Привязка возможна только после выдачи разрешения — до одобрения заявки она не пройдёт.",
-                "Binding works only after permission is granted — before the application is approved it will not go through.",
-            ),
-            fontSize = 12.sp,
-            color = MaterialTheme.colorScheme.secondary,
-        )
-    }
+private fun RetryLaterDialog(onAccept: (Boolean) -> Unit) {
+    var dontShowAgain by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { onAccept(false) },
+        title = { Text(tr("Ответ «попробуйте завтра»", "“Try tomorrow” answer")) },
+        text = {
+            Column {
+                Text(
+                    tr(
+                        "Это ещё не отказ. На серверах Xiaomi бывает сбой: заявка на самом деле " +
+                            "проходит и разрешение выдаётся, а приложение показывает ошибку.",
+                        "This is not a rejection yet. Xiaomi's servers sometimes glitch: the request " +
+                            "actually goes through and permission is granted, while the app shows an error.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    tr(
+                        "Проверьте на телефоне: Настройки → Дополнительные настройки → " +
+                            "Для разработчиков → Статус разблокировки Mi → «Добавить аккаунт». " +
+                            "Если аккаунт привязался — разрешение у вас есть.",
+                        "Check on the phone: Settings → Additional settings → Developer options → " +
+                            "Mi Unlock status → “Add account and device”. If the account binds, " +
+                            "you have permission.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    tr(
+                        "Привязка возможна только после выдачи разрешения.",
+                        "Binding works only after permission is granted.",
+                    ),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })
+                    Text(
+                        tr("Больше не показывать", "Do not show again"),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAccept(dontShowAgain) }) {
+                Text(tr("ПРИНЯТЬ", "ACCEPT"), fontWeight = FontWeight.Black)
+            }
+        },
+    )
 }
 
 @Composable
