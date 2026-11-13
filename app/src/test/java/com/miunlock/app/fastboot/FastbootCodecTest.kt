@@ -58,6 +58,23 @@ class FastbootCodecTest {
     }
 
     @Test
+    fun `DATA с нулевым терминатором в конце всё равно разбирается`() {
+        // Так ответил загрузчик annibale: 13 байт вместо 12, в конце 0x00.
+        val raw = "DATA00000100".toByteArray(StandardCharsets.US_ASCII) + byteArrayOf(0x00)
+        val parsed = FastbootCodec.parseFrame(raw, raw.size)
+        assertTrue(parsed is FastbootFrame.Data)
+        assertEquals("00000100", (parsed as FastbootFrame.Data).hexLength)
+        assertEquals(256, parsed.length)
+    }
+
+    @Test
+    fun `OKAY с нулевым терминатором не тащит мусор в payload`() {
+        val raw = "OKAY".toByteArray(StandardCharsets.US_ASCII) + byteArrayOf(0x00)
+        val parsed = FastbootCodec.parseFrame(raw, raw.size) as FastbootFrame.Okay
+        assertEquals("", parsed.payload)
+    }
+
+    @Test
     fun `неизвестный префикс не теряется`() {
         val (bytes, len) = frame("XXXXpayload")
         val parsed = FastbootCodec.parseFrame(bytes, len) as FastbootFrame.Unknown

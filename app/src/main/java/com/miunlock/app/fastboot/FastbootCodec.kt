@@ -62,7 +62,7 @@ object FastbootCodec {
     fun parseFrame(bytes: ByteArray, length: Int = bytes.size): FastbootFrame {
         if (length < 4) return FastbootFrame.Unknown("", "")
         val prefix = String(bytes, 0, 4, StandardCharsets.US_ASCII)
-        val payload = if (length > 4) String(bytes, 4, length - 4, StandardCharsets.UTF_8).trim() else ""
+        val payload = cleanPayload(if (length > 4) String(bytes, 4, length - 4, StandardCharsets.UTF_8) else "")
         return when (prefix) {
             STATUS_OKAY -> FastbootFrame.Okay(payload)
             STATUS_FAIL -> FastbootFrame.Fail(payload)
@@ -77,6 +77,18 @@ object FastbootCodec {
             else -> FastbootFrame.Unknown(prefix, payload)
         }
     }
+
+    /**
+     * Чистит payload от нулевого терминатора и прочих непечатаемых байт.
+     *
+     * Спецификация fastboot разрешает ответу быть дополненным до размера пакета,
+     * и некоторые загрузчики (в частности, новые Qualcomm ABL) закрывают строку
+     * нулём. Так `DATA00000100` приезжает 13 байтами вместо 12. `String.trim()`
+     * нулевой байт не убирает — он не считается пробелом по `Character.isWhitespace`,
+     * из-за чего длина не разбиралась и кадр превращался в `Unknown`.
+     */
+    private fun cleanPayload(raw: String): String =
+        raw.substringBefore('\u0000').filter { it == '\t' || it >= ' ' }.trim()
 
     /**
      * Токен из ответа загрузчика. Формы ответа различаются по прошивкам:
