@@ -69,10 +69,19 @@ The app opens with the mode selection screen.
 
 1. Pick **Bootloader unlock**.
 2. Sign in to Mi Account — this is a separate session.
-3. Put the target phone into fastboot (power off, then hold Volume Down and Power).
-4. Connect it to this phone with an OTG cable.
-5. Tap **Find device** and allow USB access.
-6. Tap **Unlock** and confirm the data wipe.
+3. On the target phone, sign in to the **same** account and link it:
+   Settings → Additional settings → Developer options →
+   **Mi Unlock status** → “Add account and device”.
+4. Linking starts a mandatory waiting period on Xiaomi's side. While it runs,
+   **do not add the account on the phone again** — the countdown restarts from
+   scratch. The app shows how many hours are left.
+5. Put the target phone into fastboot (power off, then hold Volume Down and Power).
+6. Connect it to this phone with an OTG cable.
+7. Tap **Find device** and allow USB access.
+8. Tap **Unlock** and confirm the data wipe.
+
+The account must be linked on the very phone you are unlocking: the
+account-and-device pair is unique, so a link made on another phone does not count.
 
 ### Unlock application
 
@@ -91,6 +100,9 @@ The app opens with the mode selection screen.
 - Keep your phone connected to the internet while it is waiting.
 - Do not close the app from the recent-apps screen while it is working.
 - The final decision and any waiting period are controlled by Xiaomi.
+- In unlock mode, do not unplug the OTG cable before the operation finishes: the
+  bootloader must receive the signature and the command back to back.
+- Unlocking erases everything on the target phone. Back it up beforehand.
 
 ## Privacy
 
