@@ -53,7 +53,7 @@ object FastbootCodec {
         return bytes
     }
 
-    /** Длина для `stage:`/`download:` — ровно 8 hex-цифр в нижнем регистре. */
+    /** Длина для `download:` — ровно 8 hex-цифр в нижнем регистре. */
     fun hexLength(size: Int): String {
         require(size >= 0) { "длина не может быть отрицательной" }
         return String.format(Locale.US, "%08x", size)

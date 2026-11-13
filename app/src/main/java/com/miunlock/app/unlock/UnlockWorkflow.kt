@@ -88,19 +88,28 @@ class FastbootCommands(private val usb: FastbootUsb) {
         return Result.failure(IllegalStateException("устройство не отдало токен"))
     }
 
-    /** Передаёт подпись в память загрузчика. */
+    /**
+     * Передаёт подпись в память загрузчика.
+     *
+     * В провод уходит `download:%08x` — это команда протокола fastboot.
+     * `fastboot stage <файл>` на стороне ПК — лишь обёртка: официальный клиент
+     * (AOSP `fastboot.cpp`, ветка `command == "stage"`) внутри вызывает
+     * `fb->Download()`, а тот посылает устройству именно `download:`.
+     * Слать в устройство `stage:` нельзя — такой команды в протоколе нет,
+     * загрузчик отвечает `FAIL unknown command`.
+     */
     fun stage(data: ByteArray): Result<Unit> {
         val hex = FastbootCodec.hexLength(data.size)
-        val res = usb.execute("stage:$hex").getOrElse { return Result.failure(it) }
+        val res = usb.execute("download:$hex").getOrElse { return Result.failure(it) }
         if (res.status != FastbootCodec.STATUS_DATA) {
-            return Result.failure(IllegalStateException("stage отклонён: ${res.status} ${res.payload}"))
+            return Result.failure(IllegalStateException("download отклонён: ${res.status} ${res.payload}"))
         }
         usb.sendData(data).getOrElse { return Result.failure(it) }
         val confirm = usb.readUntilFinal().getOrElse { return Result.failure(it) }
         return if (confirm.isOkay) {
             Result.success(Unit)
         } else {
-            Result.failure(IllegalStateException("stage не принят: ${confirm.payload}"))
+            Result.failure(IllegalStateException("download не принят: ${confirm.payload}"))
         }
     }
 

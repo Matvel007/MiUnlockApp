@@ -71,7 +71,7 @@ class FastbootCodecTest {
     }
 
     @Test
-    fun `длина для stage всегда восемь hex-цифр`() {
+    fun `длина для download всегда восемь hex-цифр`() {
         assertEquals("00000010", FastbootCodec.hexLength(16))
         assertEquals("00010000", FastbootCodec.hexLength(65536))
     }
