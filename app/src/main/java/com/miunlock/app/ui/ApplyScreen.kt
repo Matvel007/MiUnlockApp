@@ -391,19 +391,32 @@ private fun AccountCard(
 @Composable
 private fun LinkingHintCard() {
     SketchCard {
-        SectionTitle("03", tr("ЕСЛИ ОТВЕТ «ПОПРОБУЙТЕ ПОЗЖЕ»", "IF XIAOMI SAYS “TRY LATER”"))
+        SectionTitle("03", tr("ЕСЛИ ОТВЕТ «ПОПРОБУЙТЕ ЗАВТРА»", "IF XIAOMI SAYS “TRY TOMORROW”"))
         Text(
             tr(
-                "Ответ вида «попробуйте на следующий день» — это не отказ. Аккаунт не отклонён: " +
-                    "ему не хватает привязки устройства к аккаунту. Откройте на телефоне Настройки → " +
-                    "Дополнительные настройки → Для разработчиков → Статус разблокировки Mi и свяжите " +
-                    "аккаунт, затем подайте заявку снова.",
-                "An answer like “try again the next day” is not a rejection. The account is not " +
-                    "declined: it simply has no device linked to it yet. On the phone open Settings → " +
-                    "Additional settings → Developer options → Mi Unlock status, link the account, " +
-                    "then submit the application again.",
+                "Ответ «попробуйте завтра» или «квота исчерпана» — ещё не отказ. На серверах " +
+                    "Xiaomi бывает сбой: заявка на самом деле проходит и разрешение выдаётся, " +
+                    "а приложение показывает ошибку. Проверить просто: на телефоне откройте " +
+                    "Настройки → Дополнительные настройки → Для разработчиков → Статус " +
+                    "разблокировки Mi и нажмите «Добавить аккаунт». Если аккаунт привязался — " +
+                    "разрешение у вас есть, можно переходить к разблокировке.",
+                "An answer like “try again tomorrow” or “quota limit reached” is not a rejection " +
+                    "yet. Xiaomi's servers sometimes glitch: the request actually goes through and " +
+                    "permission is granted, while the app still shows an error. To check, open on " +
+                    "the phone Settings → Additional settings → Developer options → Mi Unlock " +
+                    "status and tap “Add account and device”. If the account binds, you have " +
+                    "permission and can proceed to unlock.",
             ),
             style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            tr(
+                "Привязка возможна только после выдачи разрешения — до одобрения заявки она не пройдёт.",
+                "Binding works only after permission is granted — before the application is approved it will not go through.",
+            ),
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.secondary,
         )
     }
 }
