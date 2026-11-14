@@ -1,6 +1,5 @@
 package com.miunlock.app.ui
 
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,12 +15,77 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.miunlock.app.ui.theme.MiOrange
+
+/**
+ * Третий блок главного экрана — благодарность тем, кто помогал.
+ *
+ * Свёрнут по умолчанию: имена нужны не каждый раз, а место на экране
+ * занимают. Тап по карточке раскрывает список, тап ещё раз — сворачивает.
+ * Порядок имён — по вкладу, места не нумеруем.
+ */
+@Composable
+private fun ThanksCard() {
+    // Переживает поворот экрана: раскрытый список не должен схлопываться.
+    var open by rememberSaveable { mutableStateOf(false) }
+    SketchCard {
+        SectionTitle("03", tr("ОТДЕЛЬНАЯ БЛАГОДАРНОСТЬ", "SPECIAL THANKS"))
+        Text(
+            tr(
+                "Приложению помогли эти люди.",
+                "These people helped the app happen.",
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Spacer(Modifier.height(10.dp))
+        OutlinedButton(
+            onClick = { open = !open },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+        ) {
+            Text(
+                if (open) {
+                    tr("СКРЫТЬ", "HIDE")
+                } else {
+                    tr("ПОКАЗАТЬ СПИСОК", "SHOW THE LIST")
+                },
+            )
+        }
+        if (open) {
+            Spacer(Modifier.height(12.dp))
+            THANKS.forEach { name ->
+                Text(
+                    name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.padding(vertical = 3.dp),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Кто помогал. Порядок — по величине вклада, он и есть единственная
+ * иерархия: места не показываем, чтобы не расставлять людей по номерам.
+ */
+private val THANKS = listOf(
+    "san4ezzer",
+    "BarsOk",
+    "ded181966",
+    "Adizbey",
+    "mrmanson",
+    "Tatarin76",
+)
 
 /**
  * Стартовый экран: выбор режима. Открывается всегда при запуске.
@@ -85,6 +149,10 @@ fun HomeScreen(
                     shape = RoundedCornerShape(14.dp),
                 ) { Text(tr("ПЕРЕЙТИ К РАЗБЛОКИРОВКЕ", "GO TO UNLOCK")) }
             }
+
+            Spacer(Modifier.height(16.dp))
+
+            ThanksCard()
 
             Spacer(Modifier.weight(1f))
             DoodleDividerHorizontal(height = 16)
