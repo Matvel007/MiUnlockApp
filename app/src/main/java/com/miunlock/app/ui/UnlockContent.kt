@@ -12,16 +12,20 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +38,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -63,6 +68,7 @@ internal fun UnlockScreenContent(
     onScan: () -> Unit,
     onUnlock: () -> Unit,
     onAnswerConfirm: (Boolean) -> Unit,
+    onFastbootHint: (Boolean) -> Unit,
     onZone: (String) -> Unit,
     onProxy: (ProxySettings) -> Unit,
     onLanguage: (String) -> Unit,
@@ -72,6 +78,8 @@ internal fun UnlockScreenContent(
 ) {
     var showConsole by remember { mutableStateOf(false) }
     var showSettings by remember { mutableStateOf(false) }
+    // Закрыто в этой сессии: снимаем, когда человек нажмёт «Принять».
+    var fastbootHintDismissed by rememberSaveable { mutableStateOf(false) }
 
     BackHandler(enabled = true) {
         when {
@@ -132,6 +140,13 @@ internal fun UnlockScreenContent(
                 item { InstructionCard() }
                 item { Spacer(Modifier.height(24.dp)) }
             }
+        }
+    }
+
+    if (!state.hideFastbootHint && !fastbootHintDismissed) {
+        FastbootHintDialog { remember ->
+            fastbootHintDismissed = true
+            onFastbootHint(remember)
         }
     }
 
@@ -360,6 +375,92 @@ private fun StatusLine(state: UnlockUiState) {
 }
 
 private enum class Kind { DONE, WAIT, FAIL, WORK, INFO }
+
+/**
+ * Что нужно знать до подключения телефона.
+ *
+ * Показывается при входе в разблокировку, как предупреждение в подаче:
+ * ПРИНЯТЬ и галочка «больше не показывать». Текст в прокрутке и с
+ * ограничением по высоте: на маленьком экране длинное предупреждение
+ * не должно упираться в края и вылезать за диалог.
+ */
+@Composable
+private fun FastbootHintDialog(onAccept: (Boolean) -> Unit) {
+    var dontShowAgain by remember { mutableStateOf(false) }
+    AlertDialog(
+        onDismissRequest = { onAccept(false) },
+        title = { Text(tr("Важно знать до разблокировки", "Important before you unlock")) },
+        text = {
+            // Галочка вне прокрутки: текст может не влезть и прокручиваться,
+            // а согласие всегда должно быть на виду.
+            Column {
+                Column(
+                    Modifier
+                        .heightIn(max = 300.dp)
+                        .verticalScroll(rememberScrollState()),
+                ) {
+                Text(
+                    tr(
+                        "Целевой телефон должен быть в fastboot. Иначе программа его не увидит: " +
+                            "выключите телефон и зажмите Громкость− и Питание, пока не появится " +
+                            "надпись fastboot на экране.",
+                        "The target phone must be in fastboot, otherwise the app will not see it: " +
+                            "power the phone off and hold Volume Down and Power until fastboot appears " +
+                            "on the screen.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    tr(
+                        "Многое зависит от кабеля. Type-C — Type-C может не сработать: " +
+                            "не все такие кабели передают данные, часть работает только на зарядку. " +
+                            "Type-A — Type-C через переходник работает надёжнее.",
+                        "A lot depends on the cable. Type-C to Type-C may not work: not every such " +
+                            "cable carries data, some only charge. Type-A to Type-C through an adapter " +
+                            "works more reliably.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    tr(
+                        "Если телефон подключён, но программа его не видит — поменяйте концы кабеля: " +
+                            "переверните разъём в телефоне или подключите другой стороной. " +
+                            "Часто этого достаточно.",
+                        "If the phone is connected but the app does not see it, swap the cable ends: " +
+                            "flip the connector in the phone or plug it in the other way round. " +
+                            "That is often enough.",
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    tr(
+                        "Разблокировка стирает данные на целевом телефоне — это необратимо.",
+                        "Unlocking erases data on the target phone — this cannot be undone.",
+                    ),
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.secondary,
+                )
+            }
+                Spacer(Modifier.height(6.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Checkbox(checked = dontShowAgain, onCheckedChange = { dontShowAgain = it })
+                    Text(
+                        tr("Больше не показывать", "Do not show again"),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onAccept(dontShowAgain) }) {
+                Text(tr("ПРИНЯТЬ", "ACCEPT"), fontWeight = FontWeight.Black)
+            }
+        },
+    )
+}
 
 @Composable
 private fun InstructionCard() {

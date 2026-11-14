@@ -2,6 +2,7 @@ package com.miunlock.app.unlock
 
 import android.content.Context
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -71,6 +72,8 @@ class UnlockStore(private val context: Context) {
         val proxyPort = stringPreferencesKey("unlock_proxy_port")
         val proxyUser = stringPreferencesKey("unlock_proxy_user")
         val proxyPassword = stringPreferencesKey("unlock_proxy_password")
+        /** Предупреждение о fastboot и кабеле больше не показывать. */
+        val hideFastbootHint = booleanPreferencesKey("unlock_hide_fastboot_hint")
     }
 
     /**
@@ -134,6 +137,14 @@ class UnlockStore(private val context: Context) {
         val token = p[Keys.deviceToken].orEmpty()
         if (product.isBlank() || token.isBlank()) return null
         return SavedDeviceToken(product, token, p[Keys.deviceTokenUid].orEmpty())
+    }
+
+    /** Предупреждение о fastboot и кабеле: показывать или уже скрыто. */
+    suspend fun hideFastbootHint(): Boolean =
+        context.unlockDataStore.data.first()[Keys.hideFastbootHint] ?: false
+
+    suspend fun setHideFastbootHint(value: Boolean) {
+        context.unlockDataStore.edit { p -> p[Keys.hideFastbootHint] = value }
     }
 
     suspend fun proxy(): ProxySettings {

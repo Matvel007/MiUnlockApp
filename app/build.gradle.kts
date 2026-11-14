@@ -29,7 +29,7 @@ android {
         applicationId = "com.miunlock.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 69
+        versionCode = 70
         versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
         // Основная сборка — только ARM. Для отладки на эмуляторе ABI можно

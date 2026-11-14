@@ -81,6 +81,7 @@ class DemoStatesActivity : ComponentActivity() {
                             onScan = {},
                             onUnlock = {},
                             onAnswerConfirm = {},
+                            onFastbootHint = {},
                             onZone = {},
                             onProxy = {},
                             onLanguage = { language = it },

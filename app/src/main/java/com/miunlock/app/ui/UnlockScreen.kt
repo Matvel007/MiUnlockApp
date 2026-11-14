@@ -106,6 +106,8 @@ data class UnlockUiState(
     /** Сколько часов ждать, если сервер назвал срок в тексте отказа. */
     val waitHours: Int? = null,
     val confirm: ClearConfirm? = null,
+    /** Предупреждение о fastboot и кабеле уже скрыто человеком. */
+    val hideFastbootHint: Boolean = false,
 ) {
     data class ClearConfirm(val cleanOrNot: Boolean, val notice: String)
 }
@@ -233,7 +235,11 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
             // Начальное состояние читаем напрямую: так экран не зависит от того,
             // успел ли поток хранилища отдать первое значение при холодном старте.
             val saved = store.session()
-            state = state.copy(session = saved, proxy = store.proxy())
+            state = state.copy(
+                session = saved,
+                proxy = store.proxy(),
+                hideFastbootHint = store.hideFastbootHint(),
+            )
         }
         // Дальше следим за хранилищем: вход на отдельном экране сразу виден здесь.
         viewModelScope.launch {
@@ -243,6 +249,15 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                 }
             }
         }
+    }
+
+    /**
+     * Человек закрыл предупреждение о fastboot и кабеле. Галочка «больше не
+     * показывать» сохраняется, иначе предупреждение вылезет при следующем входе.
+     */
+    fun dismissFastbootHint(remember: Boolean) {
+        state = state.copy(hideFastbootHint = remember)
+        if (remember) viewModelScope.launch { store.setHideFastbootHint(true) }
     }
 
     fun saveSession(session: UnlockSession) {
@@ -479,6 +494,7 @@ fun UnlockScreen(onBack: () -> Unit, onLanguage: (String) -> Unit = {}) {
         onScan = vm::scanDevice,
         onUnlock = vm::startUnlock,
         onAnswerConfirm = vm::answerConfirm,
+        onFastbootHint = vm::dismissFastbootHint,
         onZone = vm::setZone,
         onProxy = vm::saveProxy,
         onLanguage = onLanguage,
