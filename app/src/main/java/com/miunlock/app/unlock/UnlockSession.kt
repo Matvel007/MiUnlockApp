@@ -41,6 +41,9 @@ data class UnlockSession(
     fun cookieHeader(): String = cookies.entries.joinToString("; ") { "${it.key}=${it.value}" }
 }
 
+/** Токен телефона, прочитанный из fastboot. */
+data class SavedDeviceToken(val product: String, val token: String, val uid: String)
+
 private val Context.unlockDataStore by preferencesDataStore("mi_unlock_unlock_mode")
 
 /**
@@ -58,6 +61,11 @@ class UnlockStore(private val context: Context) {
         val zone = stringPreferencesKey("unlock_zone")
         val sid = stringPreferencesKey("unlock_sid")
         val stsDomain = stringPreferencesKey("unlock_sts_domain")
+        /** Токен устройства из fastboot: по нему статус спрашивается без телефона. */
+        val deviceProduct = stringPreferencesKey("unlock_device_product")
+        val deviceToken = stringPreferencesKey("unlock_device_token")
+        /** uid, под которым токен читали: статус принадлежит аккаунту. */
+        val deviceTokenUid = stringPreferencesKey("unlock_device_token_uid")
         val proxyType = stringPreferencesKey("unlock_proxy_type")
         val proxyHost = stringPreferencesKey("unlock_proxy_host")
         val proxyPort = stringPreferencesKey("unlock_proxy_port")
@@ -108,6 +116,24 @@ class UnlockStore(private val context: Context) {
             p.remove(Keys.cookies)
             p.remove(Keys.sid)
         }
+    }
+
+    /** Запоминает токен телефона: по нему статус спрашивается без fastboot. */
+    suspend fun saveDeviceToken(product: String, token: String, uid: String) {
+        context.unlockDataStore.edit { p ->
+            p[Keys.deviceProduct] = product
+            p[Keys.deviceToken] = token
+            p[Keys.deviceTokenUid] = uid
+        }
+    }
+
+    /** Сохранённый токен телефона: null, если телефон ещё не подключали. */
+    suspend fun deviceToken(): SavedDeviceToken? {
+        val p = context.unlockDataStore.data.first()
+        val product = p[Keys.deviceProduct].orEmpty()
+        val token = p[Keys.deviceToken].orEmpty()
+        if (product.isBlank() || token.isBlank()) return null
+        return SavedDeviceToken(product, token, p[Keys.deviceTokenUid].orEmpty())
     }
 
     suspend fun proxy(): ProxySettings {

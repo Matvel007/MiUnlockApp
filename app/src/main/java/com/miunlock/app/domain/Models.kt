@@ -7,6 +7,8 @@ data class Credentials(
     val deviceId: String = "",
     val versionName: String = "5.4.11",
     val versionCode: Int = 500411,
+    /** uid аккаунта: по нему видно, ЧЬЁ разрешение показывает статус. */
+    val userId: String = "",
 ) {
     val isValid: Boolean get() = serviceToken.isNotBlank() && deviceId.isNotBlank()
 }
@@ -60,6 +62,9 @@ data class StateResult(
     val code: Int,
     val message: String,
     val deadline: String = "",
+    /** Сырые поля ответа: нужны, чтобы разбирать чужие статусы без гадания. */
+    val isPass: Int = -1,
+    val buttonState: Int = -1,
 )
 
 data class ApplyResult(
@@ -101,4 +106,6 @@ data class AppState(
     val isBusy: Boolean = false,
     val proxyStatus: String? = null,
     val snackbar: String? = null,
+    /** Сохранён ли токен телефона: без него часы ожидания не прочитать. */
+    val hasDeviceToken: Boolean = false,
 )

@@ -48,8 +48,26 @@ class DebugLogTextTest {
     }
 
     @Test
+    fun `auth dump попадает в лог между шапкой и событиями`() {
+        val text = DebugLog.buildLogText(
+            header = listOf("mode" to "apply"),
+            events = listOf(event(LogLevel.INFO, LogTag.API, "x")),
+            authDump = "apply.uid=123",
+            zone = zone,
+        )
+        assertTrue(text.contains("--- auth dump ---\napply.uid=123\n--- end auth dump ---"))
+        assertTrue(text.indexOf("auth dump") < text.indexOf("--- events ---"))
+    }
+
+    @Test
+    fun `без auth dump блок не появляется`() {
+        val text = DebugLog.buildLogText(emptyList(), emptyList(), zone = zone)
+        assertTrue(!text.contains("auth dump"))
+    }
+
+    @Test
     fun `пустой лог содержит только шапку`() {
-        val text = DebugLog.buildLogText(listOf("events" to "0"), emptyList(), zone)
+        val text = DebugLog.buildLogText(listOf("events" to "0"), emptyList(), zone = zone)
         assertEquals("=== MiUnlockApp log ===\nevents: 0\n--- events ---\n", text)
     }
 

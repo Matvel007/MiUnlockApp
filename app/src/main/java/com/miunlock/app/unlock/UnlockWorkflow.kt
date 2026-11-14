@@ -185,7 +185,7 @@ class UnlockWorkflow(
      * `20045` — «не тот дата-центр» прямо. `30002` — отсылка в Mi Community,
      * лечится тем же перебором зон.
      */
-    private companion object {
+    internal companion object {
         const val CODE_INVALID_NONCE = 10005
         val ZONE_CODES = setOf(20031, 20045, 30002)
     }
@@ -218,6 +218,8 @@ class UnlockWorkflow(
         device: UsbDevice,
         listener: Listener,
         onConfirmClear: suspend (cleanOrNot: Boolean, notice: String) -> Boolean = { _, _ -> true },
+        /** Токен прочитан: его сохраняют, чтобы дальше спрашивать статус без телефона. */
+        onToken: suspend (product: String, token: String) -> Unit = { _, _ -> },
     ): UnlockOutcome {
         // Текущий шаг: при исключении важно сказать, где именно встало,
         // а не валить всё на «DEVICE».
@@ -253,6 +255,8 @@ class UnlockWorkflow(
                 return UnlockOutcome.Failure(UnlockStep.TOKEN, it.message ?: "нет токена")
             }
             listener.onProgress(UnlockProgress(UnlockStep.TOKEN, "Токен получен, ${token.length} символов", "Token received, ${token.length} chars"))
+            runCatching { onToken(product, token) }
+                .onFailure { DebugLog.warn(LogTag.APP, "токен не сохранён: ${it.message}") }
 
             // Домен сервиса Xiaomi называет сам в STS — токен привязан к нему.
             // Но `ahaUnlock` смотрит не на регион аккаунта, а на дата-центр,

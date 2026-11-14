@@ -27,6 +27,27 @@ class XiaomiApiTest {
     }
 
     @Test
+    fun testParseStateKeepsRawFields() {
+        // Поля сохраняются как есть: по ним разбираются чужие статусы,
+        // и в журнал они попадают без догадок.
+        val json = JSONObject("""{"code": 0, "data": {"is_pass": 1, "button_state": 1, "deadline_format": "2027-08-06 00:00"}}""")
+        val result = api.parseState(json)
+        assertEquals(1, result.isPass)
+        assertEquals(1, result.buttonState)
+        assertEquals("2027-08-06 00:00", result.deadline)
+    }
+
+    @Test
+    fun testParseStateNotAppliedKeepsRawFields() {
+        // «Можно подать заявку» — это is_pass=4/button_state=1, а не разрешение.
+        val json = JSONObject("""{"code": 0, "data": {"is_pass": 4, "button_state": 1}}""")
+        val result = api.parseState(json)
+        assertEquals(2, result.code)
+        assertEquals(4, result.isPass)
+        assertEquals(1, result.buttonState)
+    }
+
+    @Test
     fun testParseApplyQuotaReached() {
         val json = JSONObject("""
             {

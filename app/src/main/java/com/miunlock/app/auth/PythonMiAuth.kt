@@ -125,7 +125,7 @@ class PythonMiAuth(context: Context) {
         callLogin("verify_code", method, code, sid)
 
     /** Страна аккаунта и его дата-центр — из официального ответа Xiaomi. */
-    data class AccountZone(val region: String, val zone: String)
+    data class AccountZone(val region: String, val zone: String, val userId: String = "")
 
     /** Подставляет cookies сохранённой сессии, чтобы уточнить зону без нового входа. */
     suspend fun applySession(cookies: Map<String, String>) = withContext(Dispatchers.IO) {
@@ -142,7 +142,7 @@ class PythonMiAuth(context: Context) {
             DebugLog.warn(LogTag.AUTH, "регион аккаунта не получен: ${result.optString("error")}")
             return@withContext AccountZone("", "")
         }
-        AccountZone(result.optString("region"), result.optString("zone"))
+        AccountZone(result.optString("region"), result.optString("zone"), result.optString("userId"))
     }
 
     /** Новые cookies сервиса по сохранённой сессии: токен живёт около часа. */
@@ -242,12 +242,34 @@ class PythonMiAuth(context: Context) {
                     val set = e.optJSONArray("setCookie")?.let { a ->
                         List(a.length()) { a.optString(it) }
                     }?.joinToString().orEmpty()
+                    val sent = e.optJSONArray("sentMasked")?.let { a ->
+                        List(a.length()) { a.optString(it) }
+                    }?.joinToString().orEmpty()
                     DebugLog.add(
                         LogLevel.TRACE, LogTag.AUTH,
                         "STS ${e.optString("variant")}: ${e.optInt("status")} → ${e.optString("finalHost")}" +
                             (if (e.optString("wwwAuth").isNotBlank()) ", требует авторизацию «${e.optString("wwwAuth")}»" else "") +
                             ", тело ${e.optInt("len")} байт, Set-Cookie [$set]",
                     )
+                    // Отдельной строкой: что именно ушло на сервер. Без этого
+                    // «401» не отличить от «cookie не та».
+                    DebugLog.add(
+                        LogLevel.TRACE, LogTag.AUTH,
+                        "  отправлено [$sent], Cookie ${e.optInt("requestCookieLen")} байт, " +
+                            "Location «${e.optString("location")}», тип «${e.optString("contentType")}»",
+                    )
+                    if (e.optString("body").isNotBlank()) {
+                        DebugLog.add(LogLevel.TRACE, LogTag.AUTH, "  ответ: ${e.optString("body")}")
+                    }
+                    e.optJSONObject("headers")?.let { headers ->
+                        val list = headers.keys().asSequence()
+                            .sorted()
+                            .map { "$it=${headers.optString(it)}" }
+                            .joinToString("; ")
+                        if (list.isNotBlank()) {
+                            DebugLog.add(LogLevel.TRACE, LogTag.AUTH, "  заголовки: $list")
+                        }
+                    }
                 }
             }
             if (!d.optBoolean("hasNonce")) {
@@ -297,7 +319,13 @@ class PythonMiAuth(context: Context) {
         )
     }
 
-    suspend fun qrPoll(lp: String, timeoutMs: Long, cookieHeader: String, proxy: ProxySettings): QrPollResult = withContext(Dispatchers.IO) {
+    suspend fun qrPoll(
+        lp: String,
+        timeoutMs: Long,
+        cookieHeader: String,
+        proxy: ProxySettings,
+        sid: String,
+    ): QrPollResult = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(lp)
             .header("User-Agent", "offici5l/migate")
@@ -313,6 +341,19 @@ class PythonMiAuth(context: Context) {
                 val setCookies = JSONArray(response.headers.values("Set-Cookie"))
                 val result = call("qr_apply_cookies", setCookies.toString())
                 requireOk(result)
+                // Скан подтверждён, но сессия ещё не собрана: long-poll отдаёт
+                // `location`, по которому надо пройти, иначе passToken выходит
+                // неполным и unlock-STS отвечает 401. Ровно это делает вход
+                // по коду, и только поэтому он работает.
+                val completed = call("qr_complete", raw.removePrefix("&&&START&&&"), sid)
+                val steps = completed.optJSONArray("steps")?.let { array ->
+                    List(array.length()) { array.optString(it) }
+                }.orEmpty()
+                if (steps.isNotEmpty()) {
+                    DebugLog.add(LogLevel.INFO, LogTag.AUTH, "QR: довожу сессию — ${steps.joinToString("; ")}")
+                } else {
+                    DebugLog.warn(LogTag.AUTH, "QR: доводка сессии не дала шагов")
+                }
                 QrPollResult(scanned = true, expired = false)
             }
         } catch (timeout: java.net.SocketTimeoutException) {

@@ -203,14 +203,19 @@ fun MiUnlockScreen(state: AppState, dispatch: (AppIntent) -> Unit, onHome: () ->
         }
     }
 
-    // Окно про «попробуйте завтра»: показываем один раз на каждый такой ответ,
-    // пока пользователь не отметил «больше не показывать».
+    // Окно-предупреждение: показывается при входе в меню и повторно на каждый
+    // ответ «попробуйте завтра». Пока человек не отметил «больше не показывать».
     var retryHintDismissed by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(state.snapshot.retryLater) {
+        // Новый такой ответ — повод напомнить снова, даже если окно уже закрывали.
         if (state.snapshot.retryLater) retryHintDismissed = false
     }
-    if (state.snapshot.retryLater && !state.settings.hideRetryLaterHint && !retryHintDismissed) {
-        RetryLaterDialog { dontShowAgain ->
+    if (!state.settings.hideRetryLaterHint && !retryHintDismissed) {
+        RetryLaterDialog(
+            // Заголовок зависит от повода: до подачи это предупреждение,
+            // после ответа — объяснение, что ответ не означает отказ.
+            afterAnswer = state.snapshot.retryLater,
+        ) { dontShowAgain ->
             if (dontShowAgain) dispatch(AppIntent.SetHideRetryLaterHint(true))
             retryHintDismissed = true
         }
@@ -400,34 +405,60 @@ private fun AccountCard(
         ) {
             Text(if (state.settings.credentials.isValid) tr("СМЕНИТЬ / ОБНОВИТЬ ВХОД", "CHANGE / REFRESH SIGN-IN") else tr("ВОЙТИ В MI ACCOUNT", "SIGN IN TO MI ACCOUNT"))
         }
+        Spacer(Modifier.height(10.dp))
+        Text(
+            if (state.hasDeviceToken) {
+                tr(
+                    "Остаток ожидания читается по сохранённому токену телефона — подключать его не нужно.",
+                    "The remaining waiting time is read from the saved device token — no need to reconnect the phone.",
+                )
+            } else {
+                tr(
+                    "Чтобы видеть остаток ожидания, один раз подключите телефон в fastboot в режиме разблокировки.",
+                    "To see the remaining waiting time, connect the phone in fastboot once in the unlock mode.",
+                )
+            },
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.secondary,
+        )
     }
 }
 
 @Composable
-private fun RetryLaterDialog(onAccept: (Boolean) -> Unit) {
+private fun RetryLaterDialog(afterAnswer: Boolean, onAccept: (Boolean) -> Unit) {
     var dontShowAgain by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = { onAccept(false) },
-        title = { Text(tr("Ответ «попробуйте завтра»", "“Try tomorrow” answer")) },
+        title = {
+            Text(
+                if (afterAnswer) {
+                    tr("Ответ «попробуйте завтра»", "“Try tomorrow” answer")
+                } else {
+                    tr("Важно знать до подачи", "Important before you apply")
+                },
+            )
+        },
         text = {
             Column {
                 Text(
                     tr(
-                        "Это ещё не отказ. На серверах Xiaomi бывает сбой: заявка на самом деле " +
+                        "Если после подачи появится ответ «попробуйте позже» или «попробуйте завтра», " +
+                            "это ещё не отказ. На серверах Xiaomi бывает сбой: заявка на самом деле " +
                             "проходит и разрешение выдаётся, а приложение показывает ошибку.",
-                        "This is not a rejection yet. Xiaomi's servers sometimes glitch: the request " +
-                            "actually goes through and permission is granted, while the app shows an error.",
+                        "If the app answers “try later” or “try tomorrow” after applying, it is not a " +
+                            "rejection yet. Xiaomi's servers sometimes glitch: the request actually " +
+                            "goes through and permission is granted, while the app shows an error.",
                     ),
                     style = MaterialTheme.typography.bodyMedium,
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
                     tr(
-                        "Проверьте на телефоне: Настройки → Дополнительные настройки → " +
-                            "Для разработчиков → Статус разблокировки Mi → «Добавить аккаунт». " +
+                        "Как проверить: на телефоне откройте Настройки → Дополнительные настройки → " +
+                            "Для разработчиков → Статус Mi Unlock → кнопка «Связать аккаунт с устройством». " +
                             "Если аккаунт привязался — разрешение у вас есть.",
-                        "Check on the phone: Settings → Additional settings → Developer options → " +
-                            "Mi Unlock status → “Add account and device”. If the account binds, " +
+                        "To check: on the phone open Settings → Additional settings → Developer options → " +
+                            "Mi Unlock status → the “Add account and device” button. If the account binds, " +
                             "you have permission.",
                     ),
                     style = MaterialTheme.typography.bodyMedium,
@@ -435,8 +466,10 @@ private fun RetryLaterDialog(onAccept: (Boolean) -> Unit) {
                 Spacer(Modifier.height(8.dp))
                 Text(
                     tr(
-                        "Привязка возможна только после выдачи разрешения.",
-                        "Binding works only after permission is granted.",
+                        "Привязка возможна только после выдачи разрешения. " +
+                            "Не привязывайте повторно — отсчёт начнётся заново.",
+                        "Binding works only after permission is granted. " +
+                            "Do not bind again — the countdown restarts.",
                     ),
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.secondary,
@@ -489,18 +522,12 @@ private fun localizedMessage(message: String, language: String): String {
         message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! ") ->
             "🎉 PERMISSION GRANTED! ${localizedMessage(message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! "), "en")}"
 
-        message == "📋 Разрешения НЕТ (можно подать заявку)" ->
-            "📋 NO PERMISSION YET (ready to submit application)"
-        message.startsWith("📋 Разрешения НЕТ (можно подать заявку)") ->
-            "📋 NO PERMISSION YET (ready to submit application)${message.removePrefix("📋 Разрешения НЕТ (можно подать заявку)")}"
-
-        message == "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад" ->
-            "⛔ NO PERMISSION. The account was created less than 30 days ago"
-        message.startsWith("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ") ->
-            "⛔ NO PERMISSION. Account error (retry after ${message.removePrefix("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ").removeSuffix(")")})" +
-                if (message.endsWith(")")) ")" else ""
-        message.startsWith("⛔ Разрешения НЕТ. ") ->
-            "⛔ NO PERMISSION. ${localizedMessage(message.removePrefix("⛔ Разрешения НЕТ. "), "en")}"
+        message == "📋 Заявка не подана — можно подавать" ->
+            "📋 No application yet — you can apply"
+        message == "⛔ Аккаунт создан менее 30 дней назад" ->
+            "⛔ The account was created less than 30 days ago"
+        message.startsWith("⛔ Ошибка аккаунта. Повторите после ") ->
+            "⛔ Account error. Retry after ${message.removePrefix("⛔ Ошибка аккаунта. Повторите после ")}"
 
         message.startsWith("Доступ к разблокировке уже получен до ") ->
             "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"

@@ -19,11 +19,17 @@ android {
     namespace = "com.miunlock.app"
     compileSdk = 34
 
+    // Юнит-тесты идут на JVM, где android.util.Log отсутствует. Возврат
+    // значений по умолчанию позволяет проверять логику, которая пишет в журнал.
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
+
     defaultConfig {
         applicationId = "com.miunlock.app"
         minSdk = 26
         targetSdk = 34
-        versionCode = 48
+        versionCode = 65
         versionName = appVersionName
         vectorDrawables { useSupportLibrary = true }
         // Основная сборка — только ARM. Для отладки на эмуляторе ABI можно

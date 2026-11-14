@@ -7,7 +7,12 @@ import com.miunlock.app.domain.AppIntent
 import com.miunlock.app.domain.AppState
 import com.miunlock.app.domain.Credentials
 import com.miunlock.app.domain.RunPhase
+import com.miunlock.app.data.AuthDump
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.unlock.AccountStatus
+import com.miunlock.app.unlock.StatusCheck
+import com.miunlock.app.unlock.UnlockApi
+import com.miunlock.app.unlock.UnlockOutcome
 import com.miunlock.app.data.LogTag
 import com.miunlock.app.service.UnlockService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,6 +27,33 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val snackbar = MutableStateFlow<String?>(null)
     private val busy = MutableStateFlow(false)
     private val proxyStatus = MutableStateFlow<String?>(null)
+    /** Есть ли сохранённый токен телефона: по нему читаются часы ожидания. */
+    private val hasDeviceToken = MutableStateFlow(false)
+
+    init {
+        viewModelScope.launch {
+            hasDeviceToken.value = app.container.unlockStore.deviceToken() != null
+            // Дамп собираем сразу: лог копируют и без нажатия «Проверить»,
+            // а без сессии в нём нечего разбирать.
+            refreshAuthDump()
+        }
+    }
+
+    /** Обновляет блок сессии в журнале: по нему запрос повторяется вне телефона. */
+    suspend fun refreshAuthDump() {
+        val settings = app.container.settingsStore.current()
+        val unlock = app.container.unlockStore.session()
+        val saved = app.container.unlockStore.deviceToken()
+        val dump = buildString {
+            if (settings.credentials.isValid) {
+                appendLine(AuthDump.forApply(settings.credentials, settings.proxy))
+            }
+            if (unlock.isValid) {
+                appendLine(AuthDump.forUnlock(unlock, saved, app.container.unlockStore.proxy()))
+            }
+        }.trimEnd()
+        if (dump.isNotBlank()) DebugLog.setAuthDump(dump)
+    }
 
     val state = combine(
         app.container.settingsStore.settings,
@@ -40,6 +72,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }.combine(proxyStatus) { appState, currentProxyStatus ->
         appState.copy(proxyStatus = currentProxyStatus)
+    }.combine(hasDeviceToken) { appState, token ->
+        appState.copy(hasDeviceToken = token)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AppState())
 
     fun dispatch(intent: AppIntent) {
@@ -90,9 +124,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         UnlockService.start(getApplication())
     }
 
+    /**
+     * Проверка при нажатии «Проверить»: измеряет задержку и ставит смещение.
+     * Если телефон уже подключали и сохранён токен — дополнительно спрашивает
+     * остаток ожидания. Mi Community как источник статуса не используется:
+     * при пустом uid он отвечает дефолтом и вводит в заблуждение.
+     */
     private fun checkNow() = viewModelScope.launch {
         busy.value = true
-        DebugLog.add("Запуск проверки аккаунта")
+        DebugLog.add("Запуск проверки")
         saveDraftSilently()
         val savedSettings = app.container.settingsStore.current()
         val credentials = savedSettings.credentials.takeIf { it.isValid }
@@ -103,20 +143,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return@launch
         }
         try {
+            DebugLog.setAuthDump(AuthDump.forApply(credentials, savedSettings.proxy))
             val check = app.container.api.measureState(credentials, savedSettings.proxy)
             app.container.settingsStore.save(savedSettings.copy(delayMs = check.recommendedDelayMs))
             if (savedSettings.proxy.isEnabled) proxyStatus.value = "Прокси подключён"
             DebugLog.add("RTT: ${check.samplesMs.joinToString(", ")} мс")
             DebugLog.add("Смещение: ${check.recommendedDelayMs} мс (быстрая половина RTT / 2 + запас)")
-            DebugLog.add("Проверка завершена: RTT ${check.averageRttMs} мс, смещение ${check.recommendedDelayMs} мс, код ${check.state.code}")
-            val statusText = when (check.state.code) {
-                1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${check.state.deadline}"
-                2 -> "📋 Разрешения НЕТ (можно подать заявку). Смещение: ${check.recommendedDelayMs} мс (средний RTT ${check.averageRttMs} мс)"
-                3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${check.state.deadline})"
-                4 -> "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад"
-                else -> "${check.state.message}. Смещение: ${check.recommendedDelayMs} мс"
+
+            // Часы знает только unlock-сервер и только по токену устройства.
+            // Нет токена — не гадаем, показываем одно смещение.
+            val saved = app.container.unlockStore.deviceToken()
+            val stored = app.container.unlockStore.session()
+            val status = if (saved != null && stored.isValid) {
+                val session = app.container.sessionRefresher.refresh(stored)
+                if (saved.uid.isNotBlank() && session.userId.isNotBlank() && saved.uid != session.userId) {
+                    // Токен читали под другим аккаунтом: ответ был бы про чужой.
+                    DebugLog.add("токен от uid ${saved.uid}, сессия ${session.userId} — часы не спрашиваю")
+                    null
+                } else {
+                    val outcome = StatusCheck(UnlockApi(app.container.unlockStore.proxy())).byToken(session, saved)
+                    val hours = (outcome as? UnlockOutcome.Failure)?.waitHours
+                    when {
+                        hours != null -> AccountStatus(granted = true, waitHours = hours, source = "token")
+                        outcome is UnlockOutcome.Success -> AccountStatus(granted = true, source = "token")
+                        else -> null
+                    }
+                }
+            } else {
+                DebugLog.add("токена телефона нет — остаток ожидания не спрашиваю")
+                null
             }
-            snackbar.value = statusText
+            snackbar.value = when {
+                status == null -> "Смещение: ${check.recommendedDelayMs} мс"
+                status.waitHours != null -> "Осталось ${status.waitHours} ч · смещение ${check.recommendedDelayMs} мс"
+                status.granted -> "Разрешение есть · смещение ${check.recommendedDelayMs} мс"
+                else -> "Смещение: ${check.recommendedDelayMs} мс"
+            }
+            hasDeviceToken.value = app.container.unlockStore.deviceToken() != null
         } catch (error: Exception) {
             if (state.value.settings.proxy.isEnabled) proxyStatus.value = "Прокси недоступен"
             DebugLog.error(LogTag.API, "Ошибка проверки: ${errorSummary(error)}")

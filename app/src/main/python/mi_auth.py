@@ -307,9 +307,25 @@ def _sts_obtain(location, nonce, ssecurity, cookies):
                     "variant": f"{host}/{name}/{mode}",
                     "status": answer.status_code,
                     "finalHost": urlparse(answer.url).netloc,
+                    "finalUrl": answer.url[:200],
+                    # Какие cookie реально ушли: имена и длины, без значений.
+                    # Значения — это доступ к аккаунту, в журнал им нельзя.
+                    "sent": sorted(jar),
+                    "sentMasked": sorted(f"{k}:{len(v or '')}" for k, v in jar.items()),
+                    "requestCookieLen": len(answer.request.headers.get("Cookie", "")),
                     "wwwAuth": answer.headers.get("WWW-Authenticate", ""),
+                    "location": answer.headers.get("Location", ""),
+                    "contentType": answer.headers.get("Content-Type", ""),
                     "setCookie": sorted(fresh),
                     "len": len(answer.content),
+                    # Тело 0 байт ничего не говорит; если что-то есть — показываем начало.
+                    "body": answer.text[:200] if answer.content else "",
+                    # Причина 401 бывает в заголовке, а не в теле.
+                    "headers": {
+                        key: value[:100]
+                        for key, value in answer.headers.items()
+                        if key.lower() != "set-cookie"
+                    },
                 })
                 if any(key.lower().endswith("servicetoken") for key in fresh):
                     return probe.cookies.get_dict(), results
@@ -459,7 +475,7 @@ def account_zone():
                 break
     except Exception:
         zone = ""
-    return _reply({"ok": True, "region": region, "zone": zone})
+    return _reply({"ok": True, "region": region, "zone": zone, "userId": session.cookies.get("userId") or ""})
 
 
 def qr_request(auth_data_json):
@@ -485,10 +501,17 @@ def qr_auth_data(sid):
     (Mi Community), то unlock.update.* на свой STS отвечает 401 — сессия
     чужого сервиса. Поэтому sid передаётся тот, под который нужен токен,
     и для unlockApi запрашивается проверка безопасного адреса.
+
+    `checkSafeAddress` входит в `serviceParam`, от которого считается `_sign`.
+    Если запросить параметры с ним, а в сам запрос не передать, подпись
+    расходится с данными: вход проходит, но passToken выходит без отметки
+    о безопасном адресе, и unlock STS отвечает 401. Поэтому флаг передаётся
+    и здесь — так же, как во входе по коду.
     """
     session.cookies.clear()
     params = {"sid": sid, "_json": True}
-    if sid == "unlockApi":
+    safe = sid == "unlockApi"
+    if safe:
         params["checkSafeAddress"] = "true"
     initial = _json(session.get(SERVICE_LOGIN, params=params))
     data = {
@@ -499,6 +522,8 @@ def qr_auth_data(sid):
         "callback": initial["callback"],
         "_sign": initial["_sign"],
     }
+    if safe:
+        data["checkSafeAddress"] = "true"
     return _reply({
         "ok": True,
         "authData": json.dumps(data),
@@ -506,22 +531,68 @@ def qr_auth_data(sid):
     })
 
 
-def qr_poll(lp, timeout_ms):
-    for attempt in range(3):
+def qr_complete(payload_json, sid=""):
+    """Доводит QR-сессию до конца после подтверждения скана.
+
+    Вызывается из Kotlin после long-poll: сам long-poll идёт через OkHttp,
+    поэтому шаги сессии выполняются здесь, в общей сессии Python.
+
+    Доводка нужна только сервису разблокировки: Mi Community (`18n_bbs_global`)
+    и без этих шагов выдаёт рабочий токен, и трогать проверенный путь незачем.
+    """
+    if sid and sid != "unlockApi":
+        return _reply({"ok": True, "steps": [], "skipped": True})
+    try:
+        payload = json.loads(payload_json)
+    except Exception as error:
+        return _reply({"ok": False, "error": "ответ long-poll не разобран: {}".format(error)[:120]})
+    steps = _qr_complete(payload)
+    return _reply({"ok": True, "steps": steps, "cookies": len(session.cookies.get_dict())})
+
+
+def _qr_complete(payload):
+    """Доводит QR-вход до конца: location, его редирект, обмен под сервис.
+
+    Возвращает список шагов для журнала: по нему видно, где именно вход
+    остановился, если сессия снова окажется неполной.
+
+    Каждый шаг в своём `try`: один неудачный переход не должен обрывать
+    весь вход. Смысл — добрать cookies, а не отчитаться об успехе.
+    """
+    global auth_data
+    steps = []
+    location = payload.get("location", "")
+    if not location:
+        # Без location видно только то, что сервер прислал: по ключам понятно,
+        # ждать ли другого ответа или искать причину в другом месте.
+        steps.append("location: нет в ответе, поля {}".format(sorted(payload)))
+        return steps
+    before = set(session.cookies.get_dict())
+    try:
+        first = session.get(location, allow_redirects=False, timeout=30)
+        steps.append("location: {}".format(first.status_code))
+        follow_up = first.headers.get("Location")
+        if follow_up:
+            session.get(follow_up, allow_redirects=False, timeout=30)
+            steps.append("redirect: пройден")
+        else:
+            steps.append("redirect: нет")
+    except Exception as error:
+        steps.append("переход: сбой {}".format(_safe_qr_error(error)))
+    if auth_data:
+        # В QR-параметрах `_json` выключен: так требует long-poll. Для обмена
+        # он обязателен — иначе сервер отвечает HTML и разбор падает.
+        exchange_data = dict(auth_data)
+        exchange_data["_json"] = True
         try:
-            response = session.get(lp, timeout=int(timeout_ms) / 1000 + 2)
-            _json(response)
-            return _reply({"ok": True, "scanned": True, "expired": False})
-        except requests.exceptions.Timeout:
-            return _reply({"ok": True, "scanned": False, "expired": True})
-        except requests.exceptions.ConnectionError as error:
-            if attempt < 2:
-                continue
-            detail = _safe_qr_error(error)
-            return _reply({"ok": False, "error": "QR long-poll ConnectionError: {}".format(detail)})
+            answer = _json(session.post(SERVICE_LOGIN_AUTH2, data=exchange_data, timeout=30))
+            steps.append("auth2: код {}".format(answer.get("code")))
         except Exception as error:
-            detail = _safe_qr_error(error)
-            return _reply({"ok": False, "error": "QR long-poll {}: {}".format(type(error).__name__, detail)})
+            steps.append("auth2: сбой {}".format(_safe_qr_error(error)))
+    gained = sorted(set(session.cookies.get_dict()) - before)
+    steps.append("новые cookies: {}".format(", ".join(gained) if gained else "нет"))
+    steps.append("всего cookies: {}".format(len(session.cookies.get_dict())))
+    return steps
 
 
 def qr_apply_cookies(set_cookies_json):

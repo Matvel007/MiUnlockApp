@@ -63,6 +63,18 @@ object DebugLog {
     @Volatile
     private var uiLanguage: String = "ru"
 
+    /**
+     * Данные сессии для воспроизведения запросов вне телефона.
+     * Заполняются перед каждым обращением к серверу и попадают в экспорт:
+     * по ним запрос повторяется один в один, без переспрашивания человека.
+     */
+    @Volatile
+    private var authDump: String = ""
+
+    fun setAuthDump(value: String) {
+        authDump = value
+    }
+
     fun setMode(value: String) {
         mode = value
     }
@@ -115,7 +127,7 @@ object DebugLog {
             "time" to Instant.now().atZone(ZoneId.systemDefault()).format(stampFormat),
             "events" to _events.value.size.toString(),
         )
-        return buildLogText(header, _events.value)
+        return buildLogText(header, _events.value, authDump)
     }
 
     /**
@@ -125,10 +137,16 @@ object DebugLog {
     internal fun buildLogText(
         header: List<Pair<String, String>>,
         events: List<DebugEvent>,
+        authDump: String = "",
         zone: ZoneId = ZoneId.systemDefault(),
     ): String = buildString {
         appendLine("=== MiUnlockApp log ===")
         header.forEach { (key, value) -> appendLine("$key: $value") }
+        if (authDump.isNotBlank()) {
+            appendLine("--- auth dump ---")
+            appendLine(authDump)
+            appendLine("--- end auth dump ---")
+        }
         appendLine("--- events ---")
         events.forEach { event ->
             val time = event.time.atZone(zone).format(timeFormat)

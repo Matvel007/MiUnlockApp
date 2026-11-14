@@ -57,6 +57,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.miunlock.app.auth.PythonMiAuth
+import com.miunlock.app.data.AuthDump
 import com.miunlock.app.data.DebugLog
 import com.miunlock.app.data.LogLevel
 import com.miunlock.app.data.LogTag
@@ -65,6 +66,7 @@ import com.miunlock.app.domain.ProxyType
 import com.miunlock.app.fastboot.FastbootUsb
 import com.miunlock.app.unlock.DISCONNECTED
 import com.miunlock.app.unlock.FastbootCommands
+import com.miunlock.app.unlock.SessionRefresher
 import com.miunlock.app.unlock.UnlockApi
 import com.miunlock.app.unlock.UnlockOutcome
 import com.miunlock.app.unlock.UnlockSession
@@ -209,6 +211,7 @@ internal fun unlockHint(code: Int?): Bilingual? = when (code) {
 class UnlockViewModel(app: Application) : AndroidViewModel(app) {
 
     private val store = UnlockStore(app)
+    private val refresher = SessionRefresher(app, store)
     private val usb = FastbootUsb(app)
 
     var state by mutableStateOf(UnlockUiState())
@@ -259,16 +262,9 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
     private suspend fun prepareSession(session: UnlockSession): UnlockSession {
         if (session.cookies.isEmpty()) return session
         val auth = PythonMiAuth(getApplication())
-        var prepared = session
-        val fresh = auth.refresh(session.sid, session.cookies)
-        if (fresh != null && fresh.cookies.isNotEmpty()) {
-            prepared = prepared.copy(
-                cookies = fresh.cookies,
-                ssecurity = fresh.ssecurity.ifBlank { prepared.ssecurity },
-                serviceToken = fresh.token.ifBlank { prepared.serviceToken },
-                stsDomain = fresh.stsDomain.ifBlank { prepared.stsDomain },
-            )
-        }
+        // Обновление cookies — общим компонентом: тот же путь нужен проверке
+        // статуса в режиме подачи заявки.
+        var prepared = refresher.refresh(session)
         auth.applySession(prepared.cookies)
         val account = auth.accountZone()
         if (account.zone.isNotBlank() && account.zone != prepared.zone) {
@@ -396,10 +392,9 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
         DebugLog.add(t("Разблокировка: старт", "Unlock: started"))
 
         viewModelScope.launch {
-            // Готовим сессию до старта: обновляем токен сервиса и уточняем зону.
-            // Истёкший токен и чужая зона дают 401 на первый же запрос.
             val session = runCatching { prepareSession(state.session) }.getOrDefault(state.session)
             if (session !== state.session) state = state.copy(session = session)
+            DebugLog.setAuthDump(AuthDump.forUnlock(session, store.deviceToken(), state.proxy))
             val workflow = UnlockWorkflow(usb, UnlockApi(state.proxy))
             val outcome = withContext(Dispatchers.IO) {
                 runCatching {
@@ -419,6 +414,12 @@ class UnlockViewModel(app: Application) : AndroidViewModel(app) {
                                 state = state.copy(confirm = UnlockUiState.ClearConfirm(clean, notice))
                             }
                             d.await()
+                        },
+                        // Токен сохраняем сразу: по нему статус потом спрашивается
+                        // без телефона, в том числе из режима подачи заявки.
+                        onToken = { product, token ->
+                            store.saveDeviceToken(product, token, session.userId)
+                            DebugLog.add(t("Токен устройства сохранён", "Device token saved"))
                         },
                     )
                 }.getOrElse { UnlockOutcome.Failure(UnlockStep.DEVICE, it.message ?: "ошибка") }

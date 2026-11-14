@@ -317,6 +317,14 @@ class MiLoginActivity : ComponentActivity() {
         }
         val (token, deviceId) = auth.exchange(SID_APPLY)
         DebugLog.add("Mi Community session exchanged")
+        // uid и регион нужны, чтобы показать, ПО КАКОМУ аккаунту читается
+        // статус: у людей по два-три аккаунта, и статус чужого читается
+        // как «разрешения нет» на своём.
+        val account = runCatching { auth.accountZone() }.getOrNull()
+        DebugLog.add(
+            "Mi Community аккаунт: uid ${account?.userId?.ifBlank { "?" } ?: "?"}, " +
+                "регион ${account?.region?.ifBlank { "?" } ?: "?"}",
+        )
         val store = (application as MiUnlockApp).container.settingsStore
         val current = store.current()
         store.save(current.copy(credentials = Credentials(
@@ -324,6 +332,7 @@ class MiLoginActivity : ComponentActivity() {
             deviceId = deviceId.ifBlank { "wb_" + UUID.randomUUID().toString().replace("-", "") },
             versionName = current.credentials.versionName,
             versionCode = current.credentials.versionCode,
+            userId = account?.userId.orEmpty(),
         )))
         DebugLog.add("Mi Community session saved")
         password = ""
@@ -416,7 +425,7 @@ class MiLoginActivity : ComponentActivity() {
                         if (qrData.tips.isNotBlank()) DebugLog.add("QR tips: ${qrData.tips.take(120)}")
                         working = false
                         DebugLog.add("QR long-poll запущен")
-                        val poll = auth.qrPoll(qrData.lp, qrData.timeoutMs, qrData.cookieHeader, proxy)
+                        val poll = auth.qrPoll(qrData.lp, qrData.timeoutMs, qrData.cookieHeader, proxy, qrSid)
                         if (poll.scanned) {
                             if (!qrMode) return@launch
                             working = true

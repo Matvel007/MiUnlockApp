@@ -21,15 +21,31 @@ import kotlin.math.ceil
 import kotlin.math.sqrt
 
 class XiaomiApi {
-    suspend fun checkState(credentials: Credentials, proxy: ProxySettings = ProxySettings()): StateResult = withContext(Dispatchers.IO) {
+    /**
+     * Статус аккаунта в Mi Community.
+     *
+     * Только общий путь `bbs/api/global`: региональные (`/ru/`, `/in/`…)
+     * существуют, но нашу сессию не принимают — отвечают `100004 need login`,
+     * потому что она выдана под `18n_bbs_global`. Проверено на живом ответе.
+     */
+    suspend fun checkState(
+        credentials: Credentials,
+        proxy: ProxySettings = ProxySettings(),
+    ): StateResult = withContext(Dispatchers.IO) {
+        // Отпечаток сессии: по нему видно, ТОЙ ЛИ учёткой спросили статус.
+        DebugLog.add(
+            "state сессия: deviceId …${credentials.deviceId.takeLast(6)}, " +
+                "uid ${credentials.userId.ifBlank { "?" }}, " +
+                "токен ${credentials.serviceToken.length} симв., клиент ${credentials.versionName}/${credentials.versionCode}",
+        )
         DebugLog.add("Xiaomi state request через ${routeName(proxy)}")
         val request = Request.Builder().url(STATE_URL).headers(credentials).get().build()
         client(proxy).newCall(request).execute().use { response ->
             val raw = response.body?.string().orEmpty()
-            DebugLog.add("Xiaomi state response: HTTP ${response.code}, ${raw.length} байт")
+            // Тело — единственное, что объясняет статус: без него приходится
+            // гадать по коду, а человеку нечего показать.
+            DebugLog.add("Xiaomi state response: HTTP ${response.code}, ${raw.length} байт: ${raw.take(300)}")
             if (!response.isSuccessful) {
-                // Тело ответа при ошибке — единственное, что объясняет причину
-                // (блокировка, капча, регион), поэтому оно идёт в журнал.
                 DebugLog.error(LogTag.API, "state HTTP ${response.code}: ${raw.take(400)}")
                 error("HTTP ${response.code}")
             }
@@ -64,7 +80,10 @@ class XiaomiApi {
         }
     }
 
-    suspend fun measureState(credentials: Credentials, proxy: ProxySettings): ConnectionCheck = withContext(Dispatchers.IO) {
+    suspend fun measureState(
+        credentials: Credentials,
+        proxy: ProxySettings,
+    ): ConnectionCheck = withContext(Dispatchers.IO) {
         require(proxy.isValid) { "Укажите корректные адрес и порт прокси" }
         var lastState: StateResult? = null
         val samples = buildList {
@@ -145,14 +164,16 @@ class XiaomiApi {
         val isPass = data.optInt("is_pass", -1)
         val buttonState = data.optInt("button_state", -1)
         return when {
-            isPass == 1 -> StateResult(1, "Доступ к разблокировке уже получен до $deadline", deadline)
-            isPass == 4 && buttonState == 1 -> StateResult(2, "Можно подать заявку", deadline)
-            isPass == 4 && buttonState == 2 -> StateResult(3, "Ошибка аккаунта. Повторите после $deadline", deadline)
-            isPass == 4 && buttonState == 3 -> StateResult(4, "Аккаунт создан менее 30 дней назад", deadline)
+            isPass == 1 -> StateResult(1, "Доступ к разблокировке уже получен до $deadline", deadline, isPass, buttonState)
+            isPass == 4 && buttonState == 1 -> StateResult(2, "Можно подать заявку", deadline, isPass, buttonState)
+            isPass == 4 && buttonState == 2 -> StateResult(3, "Ошибка аккаунта. Повторите после $deadline", deadline, isPass, buttonState)
+            isPass == 4 && buttonState == 3 -> StateResult(4, "Аккаунт создан менее 30 дней назад", deadline, isPass, buttonState)
             else -> StateResult(
                 5,
                 "Xiaomi вернул незнакомый статус (is_pass=$isPass, button_state=$buttonState). Проверьте заявку в Mi Community",
                 deadline,
+                isPass,
+                buttonState,
             )
         }
     }

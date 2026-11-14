@@ -22,6 +22,7 @@ class SettingsStore(private val context: Context) {
         val deviceId = stringPreferencesKey("device_id")
         val versionName = stringPreferencesKey("version_name")
         val versionCode = intPreferencesKey("version_code")
+        val userId = stringPreferencesKey("account_user_id")
         val delayMs = intPreferencesKey("delay_ms")
         val proxyType = stringPreferencesKey("proxy_type")
         val proxyHost = stringPreferencesKey("proxy_host")
@@ -56,6 +57,7 @@ class SettingsStore(private val context: Context) {
                 deviceId = p[Keys.deviceId].orEmpty(),
                 versionName = p[Keys.versionName] ?: "5.4.11",
                 versionCode = p[Keys.versionCode] ?: 500411,
+                userId = p[Keys.userId].orEmpty(),
             ),
             delayMs = (p[Keys.delayMs] ?: 500).coerceIn(0, 10_000),
             proxyType = proxyType,
@@ -82,6 +84,7 @@ class SettingsStore(private val context: Context) {
             p[Keys.deviceId] = settings.credentials.deviceId.trim()
             p[Keys.versionName] = settings.credentials.versionName
             p[Keys.versionCode] = settings.credentials.versionCode
+            p[Keys.userId] = settings.credentials.userId
             p[Keys.delayMs] = settings.delayMs.coerceIn(0, 10_000)
             p[Keys.proxyType] = settings.proxyType.name
             p[Keys.httpProxyHost] = settings.httpProxy.host.trim()

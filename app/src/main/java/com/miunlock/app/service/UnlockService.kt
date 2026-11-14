@@ -17,7 +17,12 @@ import com.miunlock.app.R
 import com.miunlock.app.domain.ApplyResult
 import com.miunlock.app.domain.RunPhase
 import com.miunlock.app.domain.ServiceSnapshot
+import com.miunlock.app.data.AuthDump
 import com.miunlock.app.data.DebugLog
+import com.miunlock.app.domain.UserSettings
+import com.miunlock.app.unlock.AccountStatus
+import com.miunlock.app.unlock.AccountStatusChecker
+import com.miunlock.app.unlock.UnlockApi
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -101,29 +106,24 @@ class UnlockService : Service() {
         vibrationEnabled = settings.vibration
         statusNotificationsEnabled = settings.statusNotifications
         language = settings.language
-        require(settings.credentials.isValid) { "Укажите serviceToken и deviceId" }
+        val hasToken = container.unlockStore.deviceToken() != null &&
+            container.unlockStore.session().isValid
+        require(settings.credentials.isValid || hasToken) { "Укажите serviceToken и deviceId" }
 
         publish(RunPhase.CHECKING, "Проверяю состояние аккаунта…")
-        val state = retryNetwork { container.api.checkState(settings.credentials, settings.proxy) }
-        val statusMessage = when (state.code) {
-            1 -> "🎉 РАЗРЕШЕНИЕ ЕСТЬ! Доступ выдан до ${state.deadline}"
-            2 -> "📋 Разрешения НЕТ (можно подать заявку)"
-            3 -> "⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ${state.deadline})"
-            4 -> "⛔ Разрешения НЕТ. Аккаунт создан менее 30 дней назад"
-            else -> state.message
-        }
+        val status = accountStatus(settings)
+        val statusMessage = status.message
         if (checkOnly) {
-            val isGranted = state.code == 1
-            publish(if (isGranted) RunPhase.SUCCESS else RunPhase.IDLE, statusMessage)
-            showResult(isGranted, statusMessage)
+            publish(if (status.granted) RunPhase.SUCCESS else RunPhase.IDLE, statusMessage)
+            showResult(status.granted, statusMessage)
             return
         }
-        if (state.code == 1) {
+        if (status.granted) {
             publish(RunPhase.SUCCESS, statusMessage)
             showResult(true, statusMessage)
             return
         }
-        if (state.code != 2) {
+        if (!status.canApply) {
             publish(RunPhase.ERROR, statusMessage)
             showResult(false, statusMessage)
             return
@@ -167,9 +167,11 @@ class UnlockService : Service() {
             publish(RunPhase.CHECKING, "Проверяю фактический статус аккаунта…", target)
             delay(1500)
             runCatching {
-                val state = retryNetwork { container.api.checkState(settings.credentials, settings.proxy) }
-                if (state.code == 1) {
-                    DebugLog.add("Контрольная проверка: доступ поднят! (${state.message})")
+                // Одобрение ловится по всем источникам: Xiaomi часто отвечает
+                // «лимит», а разрешение при этом уже выдано.
+                val after = accountStatus(settings)
+                if (after.granted) {
+                    DebugLog.add("Контрольная проверка: разрешение есть (источник ${after.source})")
                     result = ApplyResult(
                         code = 1,
                         message = "Доступ успешно получен! (Xiaomi вернул ответ о лимите, но доступ активирован)",
@@ -177,11 +179,11 @@ class UnlockService : Service() {
                         successful = true,
                     )
                 } else {
-                    DebugLog.add("Контрольная проверка: доступ не поднят (${state.message})")
+                    DebugLog.add("Контрольная проверка: разрешения нет (${after.message})")
                     // Xiaomi не подтвердил заявку — показываем фактический
                     // статус аккаунта, а не своё предположение о причине.
                     if (result.needsStateCheck) {
-                        result = result.copy(message = "Xiaomi не подтвердил заявку. Статус аккаунта: ${state.message}")
+                        result = result.copy(message = "Xiaomi не подтвердил заявку. ${after.message}")
                     }
                 }
             }
@@ -192,6 +194,38 @@ class UnlockService : Service() {
         val retryLater = !result.successful && result.code in RETRY_LATER_CODES
         publish(phase, result.message, target, result.serverTime, retryLater = retryLater)
         showResult(result.successful, result.message, result)
+    }
+
+    /**
+     * Статус аккаунта по приоритету источников: сначала unlock-сервер по
+     * сохранённому токену (он же называет часы), затем Mi Community.
+     */
+    private suspend fun accountStatus(settings: UserSettings): AccountStatus {
+        val stored = container.unlockStore.session()
+        // Перед запросом обновляем cookies: токен живёт около часа, и с
+        // истёкшим сервер отвечает 401.
+        val session = if (stored.isValid) {
+            container.sessionRefresher.refresh(stored)
+        } else {
+            stored
+        }
+        val saved = container.unlockStore.deviceToken()
+        // Токен от другого аккаунта даст ответ про чужое устройство.
+        val usable = if (saved != null && saved.uid.isNotBlank() && session.isValid &&
+            saved.uid != session.userId
+        ) {
+            DebugLog.add("токен от uid ${saved.uid}, сессия ${session.userId} — беру Mi Community")
+            null
+        } else {
+            saved
+        }
+        if (session.isValid && usable != null) {
+            DebugLog.setAuthDump(AuthDump.forUnlock(session, usable, container.unlockStore.proxy()))
+        }
+        val checker = AccountStatusChecker.create(container.api, UnlockApi(container.unlockStore.proxy()))
+        return retryNetwork {
+            checker.check(settings.credentials, settings.proxy, session, usable)
+        }
     }
 
     private suspend fun <T> retryNetwork(block: suspend () -> T): T {
@@ -318,18 +352,13 @@ class UnlockService : Service() {
             message.startsWith("🎉 РАЗРЕШЕНИЕ ЕСТЬ! ") ->
                 "🎉 PERMISSION GRANTED! ${notificationMessage(message.removePrefix("🎉 РАЗРЕШЕНИЕ ЕСТЬ! "))}"
 
-            message == "📋 Разрешения НЕТ (можно подать заявку)" ->
-                "📋 NO PERMISSION YET (ready to submit application)"
-            message.startsWith("📋 Разрешения НЕТ (можно подать заявку)") ->
-                "📋 NO PERMISSION YET (ready to submit application)${message.removePrefix("📋 Разрешения НЕТ (можно подать заявку)")}"
+            message == "📋 Заявка не подана — можно подавать" ->
+                "📋 No application yet — you can apply"
 
-            message == "⛔ Разрешения НЕТ. Аккаунт должен быть зарегистрирован более 30 дней" ->
-                "⛔ NO PERMISSION. The account must be registered for more than 30 days"
-            message.startsWith("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ") ->
-                "⛔ NO PERMISSION. Account error (retry after ${message.removePrefix("⛔ Разрешения НЕТ. Ошибка аккаунта (повторите после ").removeSuffix(")")})" +
-                    if (message.endsWith(")")) ")" else ""
-            message.startsWith("⛔ Разрешения НЕТ. ") ->
-                "⛔ NO PERMISSION. ${notificationMessage(message.removePrefix("⛔ Разрешения НЕТ. "))}"
+            message == "⛔ Аккаунт создан менее 30 дней назад" ->
+                "⛔ The account was created less than 30 days ago"
+            message.startsWith("⛔ Ошибка аккаунта. Повторите после ") ->
+                "⛔ Account error. Retry after ${message.removePrefix("⛔ Ошибка аккаунта. Повторите после ")}"
 
             message.startsWith("Доступ к разблокировке уже получен до ") ->
                 "Unlock access is already available until ${message.removePrefix("Доступ к разблокировке уже получен до ")}"
