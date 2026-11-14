@@ -331,7 +331,6 @@ class PythonMiAuth(context: Context) {
         timeoutMs: Long,
         cookieHeader: String,
         proxy: ProxySettings,
-        sid: String,
     ): QrPollResult = withContext(Dispatchers.IO) {
         val request = Request.Builder()
             .url(lp)
@@ -348,19 +347,6 @@ class PythonMiAuth(context: Context) {
                 val setCookies = JSONArray(response.headers.values("Set-Cookie"))
                 val result = call("qr_apply_cookies", setCookies.toString())
                 requireOk(result)
-                // Скан подтверждён, но сессия ещё не собрана: long-poll отдаёт
-                // `location`, по которому надо пройти, иначе passToken выходит
-                // неполным и unlock-STS отвечает 401. Ровно это делает вход
-                // по коду, и только поэтому он работает.
-                val completed = call("qr_complete", raw.removePrefix("&&&START&&&"), sid)
-                val steps = completed.optJSONArray("steps")?.let { array ->
-                    List(array.length()) { array.optString(it) }
-                }.orEmpty()
-                if (steps.isNotEmpty()) {
-                    DebugLog.add(LogLevel.INFO, LogTag.AUTH, "QR: довожу сессию — ${steps.joinToString("; ")}")
-                } else {
-                    DebugLog.warn(LogTag.AUTH, "QR: доводка сессии не дала шагов")
-                }
                 QrPollResult(scanned = true, expired = false)
             }
         } catch (timeout: java.net.SocketTimeoutException) {

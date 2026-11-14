@@ -36,7 +36,7 @@ Unlock mode:
 
 Application mode:
 
-- Sign in with a Xiaomi Account directly in the app, including QR sign-in.
+- Sign in with a Xiaomi Account directly in the app; QR sign-in for the request mode, code sign-in for the unlock mode.
 - Check whether the account is ready for an unlock application.
 - Measure Xiaomi API response time during the check and automatically set a recommended request advance.
 - Wait for the right time and send the application automatically.

@@ -489,9 +489,8 @@ def account_zone():
 
 
 def qr_request(auth_data_json):
-    global auth_data
-    auth_data = json.loads(auth_data_json)
-    response = _json(session.get(LONGPOLLING_URL, params=auth_data))
+    params = json.loads(auth_data_json)
+    response = _json(session.get(LONGPOLLING_URL, params=params))
     lp = response["lp"]
     return _reply({
         "ok": True,
@@ -541,69 +540,6 @@ def qr_auth_data(sid):
     })
 
 
-def qr_complete(payload_json, sid=""):
-    """Доводит QR-сессию до конца после подтверждения скана.
-
-    Вызывается из Kotlin после long-poll: сам long-poll идёт через OkHttp,
-    поэтому шаги сессии выполняются здесь, в общей сессии Python.
-
-    Доводка нужна только сервису разблокировки: Mi Community (`18n_bbs_global`)
-    и без этих шагов выдаёт рабочий токен, и трогать проверенный путь незачем.
-    """
-    if sid and sid != "unlockApi":
-        return _reply({"ok": True, "steps": [], "skipped": True})
-    try:
-        payload = json.loads(payload_json)
-    except Exception as error:
-        return _reply({"ok": False, "error": "ответ long-poll не разобран: {}".format(error)[:120]})
-    steps = _qr_complete(payload)
-    return _reply({"ok": True, "steps": steps, "cookies": len(session.cookies.get_dict())})
-
-
-def _qr_complete(payload):
-    """Доводит QR-вход до конца: location, его редирект, обмен под сервис.
-
-    Возвращает список шагов для журнала: по нему видно, где именно вход
-    остановился, если сессия снова окажется неполной.
-
-    Каждый шаг в своём `try`: один неудачный переход не должен обрывать
-    весь вход. Смысл — добрать cookies, а не отчитаться об успехе.
-    """
-    global auth_data
-    steps = []
-    location = payload.get("location", "")
-    if not location:
-        # Без location видно только то, что сервер прислал: по ключам понятно,
-        # ждать ли другого ответа или искать причину в другом месте.
-        steps.append("location: нет в ответе, поля {}".format(sorted(payload)))
-        return steps
-    before = set(session.cookies.get_dict())
-    try:
-        first = session.get(location, allow_redirects=False, timeout=30)
-        steps.append("location: {}".format(first.status_code))
-        follow_up = first.headers.get("Location")
-        if follow_up:
-            session.get(follow_up, allow_redirects=False, timeout=30)
-            steps.append("redirect: пройден")
-        else:
-            steps.append("redirect: нет")
-    except Exception as error:
-        steps.append("переход: сбой {}".format(_safe_qr_error(error)))
-    if auth_data:
-        # В QR-параметрах `_json` выключен: так требует long-poll. Для обмена
-        # он обязателен — иначе сервер отвечает HTML и разбор падает.
-        exchange_data = dict(auth_data)
-        exchange_data["_json"] = True
-        try:
-            answer = _json(session.post(SERVICE_LOGIN_AUTH2, data=exchange_data, timeout=30))
-            steps.append("auth2: код {}".format(answer.get("code")))
-        except Exception as error:
-            steps.append("auth2: сбой {}".format(_safe_qr_error(error)))
-    gained = sorted(set(session.cookies.get_dict()) - before)
-    steps.append("новые cookies: {}".format(", ".join(gained) if gained else "нет"))
-    steps.append("всего cookies: {}".format(len(session.cookies.get_dict())))
-    return steps
-
 
 def qr_apply_cookies(set_cookies_json):
     for header in json.loads(set_cookies_json):
@@ -612,12 +548,6 @@ def qr_apply_cookies(set_cookies_json):
         for key, morsel in parsed.items():
             session.cookies.set(key, morsel.value)
     return _reply({"ok": True})
-
-
-def _safe_qr_error(error):
-    detail = re.sub(r"https?://[^\s']+", "<url>", str(error))
-    detail = re.sub(r"(/lp/[^?\s)]+)\?[^\s)]+", r"\1?<redacted>", detail)
-    return detail[:160]
 
 
 def qr_png(url):

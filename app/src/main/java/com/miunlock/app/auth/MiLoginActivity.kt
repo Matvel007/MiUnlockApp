@@ -130,6 +130,10 @@ class MiLoginActivity : ComponentActivity() {
                         working = working,
                         codeSent = codeSent,
                         canResend = retryMethod != null,
+                        // Разблокировка — только вход по коду: сервис разблокировки
+                        // не принимает QR-сессию (у неё нет отметки подтверждения
+                        // входа, tsl=0), STS отвечает 401. В подаче QR остаётся.
+                        showQr = mode != MODE_UNLOCK,
                         language = language,
                         onAccountChange = { account = it },
                         onPasswordChange = { password = it },
@@ -200,10 +204,7 @@ class MiLoginActivity : ComponentActivity() {
                     val method = chooseMethod(result.verificationMethods)
                     if (method == null) {
                         DebugLog.error(LogTag.AUTH, "нет попыток ни на одном способе")
-                        status = t(
-                            "Коды на этом аккаунте закончились и на почте, и на SMS — Xiaomi их не отправит. Войдите через QR (аккаунт уже открыт на другом устройстве) или под другим аккаунтом.",
-                            "Codes are used up for both email and SMS on this account — Xiaomi will not send them. Sign in via QR (the account is already open on another device) or use another account.",
-                        )
+                        status = exhaustedCodesText()
                         return@launch
                     }
                     sendCode(method)
@@ -287,10 +288,7 @@ class MiLoginActivity : ComponentActivity() {
                     codeSent = false
                     val nextMethod = chooseMethod(result.verificationMethods)
                     if (nextMethod == null) {
-                        status = t(
-                            "Коды закончились и на почте, и на SMS. Войдите через QR или под другим аккаунтом.",
-                            "Codes are used up for both email and SMS. Sign in via QR or use another account.",
-                        )
+                        status = exhaustedCodesText()
                         return@launch
                     }
                     sendCode(nextMethod)
@@ -402,11 +400,11 @@ class MiLoginActivity : ComponentActivity() {
                     t("Ожидание входа Xiaomi по QR-коду", "Waiting for Xiaomi QR sign-in"),
                 )
                 val proxy = configureAuthProxy()
-                // Вход сразу под нужный сервис: passToken привязан к sid,
-                // и сессия passport на unlock-сервисе даёт 401.
-                val qrSid = currentSid()
-                DebugLog.add("QR: сервис входа $qrSid")
-                val authData = auth.qrAuthData(qrSid)
+                // QR есть только в подаче: сервис разблокировки QR-сессию не
+                // принимает (у неё нет отметки подтверждения входа), там вход
+                // по коду. passToken привязан к sid — берём сервис подачи.
+                DebugLog.add("QR: сервис входа $SID_APPLY")
+                val authData = auth.qrAuthData(SID_APPLY)
                 DebugLog.add("QR serviceLogin cookies: ${authData.cookieNames.joinToString().ifBlank { "none" }}")
                 while (qrMode) {
                     try {
@@ -425,20 +423,20 @@ class MiLoginActivity : ComponentActivity() {
                         if (qrData.tips.isNotBlank()) DebugLog.add("QR tips: ${qrData.tips.take(120)}")
                         working = false
                         DebugLog.add("QR long-poll запущен")
-                        val poll = auth.qrPoll(qrData.lp, qrData.timeoutMs, qrData.cookieHeader, proxy, qrSid)
+                        val poll = auth.qrPoll(qrData.lp, qrData.timeoutMs, qrData.cookieHeader, proxy)
                         if (poll.scanned) {
                             if (!qrMode) return@launch
                             working = true
                             DebugLog.add("QR-вход подтвержден Xiaomi")
                             qrStatus = t("QR отсканирован! Получаю токен...", "QR scanned! Getting token...")
                             qrMode = false
-                            DebugLog.add("QR: получаю сессию сервиса $qrSid")
+                            DebugLog.add("QR: получаю сессию сервиса $SID_APPLY")
                             // qrMode уже снят, поэтому общий catch ниже ошибку
                             // промолчит: ловим её здесь, в лог и на экран.
                             try {
                                 finishLogin()
                             } catch (e: Exception) {
-                                DebugLog.error(LogTag.AUTH, "QR: сессия $qrSid не получена: ${e.message ?: e::class.simpleName}")
+                                DebugLog.error(LogTag.AUTH, "QR: сессия $SID_APPLY не получена: ${e.message ?: e::class.simpleName}")
                                 qrStatus = friendlyError(t("Ошибка входа", "Sign in error"), e)
                                 status = qrStatus
                             }
@@ -483,6 +481,23 @@ class MiLoginActivity : ComponentActivity() {
 
     private fun t(ru: String, en: String) = if (language == "en") en else ru
 
+    /**
+     * Коды кончились. В подаче остаётся QR, в разблокировке его нет —
+     * там советовать QR нельзя, человек будет искать кнопку, которой нет.
+     */
+    private fun exhaustedCodesText(): String =
+        if (mode == MODE_UNLOCK) {
+            t(
+                "Коды на этом аккаунте закончились и на почте, и на SMS — Xiaomi их не отправит. Подождите сутки или войдите под другим аккаунтом.",
+                "Codes are used up for both email and SMS on this account — Xiaomi will not send them. Wait a day or sign in with another account.",
+            )
+        } else {
+            t(
+                "Коды на этом аккаунте закончились и на почте, и на SMS — Xiaomi их не отправит. Войдите через QR (аккаунт уже открыт на другом устройстве) или под другим аккаунтом.",
+                "Codes are used up for both email and SMS on this account — Xiaomi will not send them. Sign in via QR (the account is already open on another device) or use another account.",
+            )
+        }
+
     companion object {
         const val MODE_APPLY = "apply"
         const val MODE_UNLOCK = "unlock"
@@ -509,6 +524,7 @@ private fun LoginScreen(
     working: Boolean,
     codeSent: Boolean,
     canResend: Boolean,
+    showQr: Boolean,
     language: String,
     onAccountChange: (String) -> Unit,
     onPasswordChange: (String) -> Unit,
@@ -586,10 +602,12 @@ private fun LoginScreen(
                         }
                         Spacer(Modifier.height(8.dp))
                     }
-                    OutlinedButton(onQr, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
-                        Text(if (language == "en") "SIGN IN VIA QR" else "ВОЙТИ ЧЕРЕЗ QR")
+                    if (showQr) {
+                        OutlinedButton(onQr, Modifier.fillMaxWidth(), enabled = !working, shape = RoundedCornerShape(14.dp)) {
+                            Text(if (language == "en") "SIGN IN VIA QR" else "ВОЙТИ ЧЕРЕЗ QR")
+                        }
+                        Spacer(Modifier.height(8.dp))
                     }
-                    Spacer(Modifier.height(8.dp))
                     Text(status, color = MaterialTheme.colorScheme.secondary, style = MaterialTheme.typography.bodyMedium)
                     Spacer(Modifier.height(8.dp))
                     // Человеку нужно знать заранее, куда придёт код, чтобы не ждать SMS.
