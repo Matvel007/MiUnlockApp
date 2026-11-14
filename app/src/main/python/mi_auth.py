@@ -365,6 +365,14 @@ def exchange(sid):
     exchange_debug["locationParams"] = sorted(
         key for key, _ in parse_qsl(parsed_location.query) if key not in ("nonce", "ssecurity")
     )
+    # Служебные флаги входа из ссылки STS: способ входа, регион, ДЦ. Это не
+    # секреты, а по ним видно, чем вход по QR отличается от входа по коду.
+    flags = dict(parse_qsl(parsed_location.query))
+    exchange_debug["locationFlags"] = {
+        key: flags[key][:20]
+        for key in ("p_lm", "pwd", "p_ca", "tsl", "m", "fid", "p_ur", "p_idc", "_group")
+        if key in flags
+    }
     service_cookies, sts_results = _sts_obtain(location, nonce, ssecurity, cookies)
     exchange_debug["sts"] = sts_results
     token = ""

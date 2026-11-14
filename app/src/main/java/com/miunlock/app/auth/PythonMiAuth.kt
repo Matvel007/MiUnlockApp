@@ -232,6 +232,13 @@ class PythonMiAuth(context: Context) {
                         "токен сервиса ${if (d.optBoolean("serviceToken")) "есть" else "нет"}, " +
                         "хост ${d.optString("locationHost")}${d.optString("locationPath")}, параметры [$params]",
                 )
+                d.optJSONObject("locationFlags")?.let { flags ->
+                    val list = flags.keys().asSequence().sorted()
+                        .joinToString(", ") { "$it=${flags.optString(it)}" }
+                    if (list.isNotBlank()) {
+                        DebugLog.add(LogLevel.INFO, LogTag.AUTH, "флаги входа $sid: $list")
+                    }
+                }
                 val sts = d.optJSONArray("sts")
                 for (i in 0 until (sts?.length() ?: 0)) {
                     val e = sts!!.optJSONObject(i) ?: continue
