@@ -433,7 +433,15 @@ class MiLoginActivity : ComponentActivity() {
                             qrStatus = t("QR отсканирован! Получаю токен...", "QR scanned! Getting token...")
                             qrMode = false
                             DebugLog.add("QR: получаю сессию сервиса $qrSid")
-                            finishLogin()
+                            // qrMode уже снят, поэтому общий catch ниже ошибку
+                            // промолчит: ловим её здесь, в лог и на экран.
+                            try {
+                                finishLogin()
+                            } catch (e: Exception) {
+                                DebugLog.error(LogTag.AUTH, "QR: сессия $qrSid не получена: ${e.message ?: e::class.simpleName}")
+                                qrStatus = friendlyError(t("Ошибка входа", "Sign in error"), e)
+                                status = qrStatus
+                            }
                             return@launch
                         }
                         if (poll.expired) {

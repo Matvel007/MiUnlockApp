@@ -475,7 +475,9 @@ def account_zone():
                 break
     except Exception:
         zone = ""
-    return _reply({"ok": True, "region": region, "zone": zone, "userId": session.cookies.get("userId") or ""})
+    # get_dict(), а не cookies.get(): после QR-входа cookie userId приходит
+    # с нескольких доменов, и cookies.get() на дублях бросает CookieConflictError.
+    return _reply({"ok": True, "region": region, "zone": zone, "userId": session.cookies.get_dict().get("userId") or ""})
 
 
 def qr_request(auth_data_json):
