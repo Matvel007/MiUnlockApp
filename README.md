@@ -61,6 +61,18 @@ Application mode:
 - x86/x86_64 phones are not supported: the APK ships only ARM native libraries.
 - Unlock mode needs USB host (OTG): the target phone is connected to this phone.
 
+## What The Firmware May Warn About
+
+The app is not distributed through an app store, so MIUI, HyperOS and realme may show warnings. All of them are about installing and background work, not about your data.
+
+- **"App could not be verified" or "risky app".** That is the built-in firmware scanner reacting to a self-signed APK. Install anyway.
+- **"App built for an older version of Android".** Shows up on new firmware, does not block the install.
+- **Autostart.** Off by default: without permission a submitted request will not continue after a phone reboot.
+- **Battery saver.** The firmware may stop background work — then waiting and sending the request never finish.
+- **Notifications.** On Android 13 and newer the permission is asked separately; without it the progress is invisible.
+- **OTG.** On MIUI the OTG switch turns itself off after about 10 minutes — without it the target phone is not detected.
+- **USB access.** When the target phone is connected, the system asks for permission to access the USB device.
+
 ## How To Use
 
 The app opens with the mode selection screen.
