@@ -111,7 +111,7 @@ private val THANKS_LIST_MAX_HEIGHT = 132.dp
  * иерархия: места не показываем, чтобы не расставлять людей по номерам.
  */
 private val THANKS = listOf(
-    "san4ezzer",
+    "san4ezzep",
     "BarsOk",
     "ded181966",
     "Adizbey",
